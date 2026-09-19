@@ -36,6 +36,8 @@ class Place(BaseModel):
     district: str | None = None
     type_label: str | None = None
     why: str
+    detail: str | None = None
+    highlight: str | None = None
     score_vector: float
     score_ranked: float
     fee: FactField

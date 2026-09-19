@@ -1,4 +1,4 @@
-import type { ChatTurn } from "../types";
+import { LOADING_COPY, type ChatTurn } from "../types";
 
 type Props = {
   turns: ChatTurn[];
@@ -22,12 +22,27 @@ export function ChatThread({ turns }: Props) {
   if (!visible.length) return null;
   return (
     <ol className="thread" data-component="ChatThread">
-      {visible.map((turn) => (
-        <li key={turn.id} className="turn">
-          <p className="turn-query">{turn.query}</p>
-          {turn.intro ? <p className="turn-intro">{turn.intro}</p> : null}
-        </li>
-      ))}
+      {visible.flatMap((turn) => {
+        const rows = [
+          <li key={`${turn.id}-user`} className="bubble-row is-user">
+            <p className="turn-query">{turn.query}</p>
+          </li>,
+        ];
+        if (turn.intro) {
+          rows.push(
+            <li key={`${turn.id}-bot`} className="bubble-row is-bot">
+              <p className="turn-intro">{turn.intro}</p>
+            </li>,
+          );
+        } else if (turn.id === "pending") {
+          rows.push(
+            <li key={`${turn.id}-pending`} className="bubble-row is-bot">
+              <p className="turn-intro is-pending">{LOADING_COPY}</p>
+            </li>,
+          );
+        }
+        return rows;
+      })}
     </ol>
   );
 }

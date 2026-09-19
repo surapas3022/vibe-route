@@ -9,11 +9,12 @@ const NORTH: L.LatLngExpression = [18.8, 99.0];
 type Props = {
   points: MapPoint[];
   layoutTick: number;
+  focusId?: string | null;
 };
 
-export function PlaceMap({ points, layoutTick }: Props) {
+export function PlaceMap({ points, layoutTick, focusId }: Props) {
   const mapRef = useRef<L.Map | null>(null);
-  const markersRef = useRef<L.Marker[]>([]);
+  const markersRef = useRef<Array<{ att_id: string; marker: L.Marker }>>([]);
 
   useEffect(() => {
     const map = L.map("map", { zoomControl: true }).setView(NORTH, 6);
@@ -28,7 +29,7 @@ export function PlaceMap({ points, layoutTick }: Props) {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    markersRef.current.forEach((m) => m.remove());
+    markersRef.current.forEach((item) => item.marker.remove());
     markersRef.current = [];
     if (!points.length) {
       map.setView(NORTH, 6);
@@ -43,18 +44,31 @@ export function PlaceMap({ points, layoutTick }: Props) {
       });
       const marker = L.marker([pt.lat, pt.lng], { icon }).addTo(map);
       marker.bindPopup(`${i + 1}. ${pt.name_th}`);
-      markersRef.current.push(marker);
+      markersRef.current.push({ att_id: pt.att_id, marker });
     });
     const b = L.latLngBounds(points.map((pt) => [pt.lat, pt.lng] as L.LatLngTuple));
     map.fitBounds(b, { padding: [24, 24], maxZoom: 12 });
   }, [points]);
 
   useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !focusId) return;
+    const pt = points.find((item) => item.att_id === focusId);
+    const entry = markersRef.current.find((item) => item.att_id === focusId);
+    markersRef.current.forEach((item) => {
+      item.marker.getElement()?.querySelector(".pin")?.classList.toggle("is-focus", item.att_id === focusId);
+    });
+    if (!pt) return;
+    map.flyTo([pt.lat, pt.lng], 14, { duration: 0.7 });
+    entry?.marker.openPopup();
+  }, [focusId, points]);
+
+  useEffect(() => {
     mapRef.current?.invalidateSize();
   }, [layoutTick, points]);
 
   const meta = points.length
-    ? `หมุด ${points.length} จุด · ลากเส้นแบ่งเพื่อขยายแผนที่`
+    ? `หมุด ${points.length} จุด · กดการ์ดเพื่อซูมไปที่หมุด`
     : "ยังไม่มีหมุด — ลากเส้นแบ่งเพื่อขยายแผนที่";
 
   return (

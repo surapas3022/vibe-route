@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, clearAuthSession, hasAuthSession, type AuthUser } from "./api";
+import { api, clearAuthSession, type AuthUser } from "./api";
 import { AssistantBar } from "./components/AssistantBar";
 import { AuthScreen } from "./components/AuthScreen";
 import { ChatHistory } from "./components/ChatHistory";
 import { ChatThread } from "./components/ChatThread";
 import { ConfirmModal } from "./components/ConfirmModal";
 import { Filters } from "./components/Filters";
+import { NextSteps } from "./components/NextSteps";
 import { PlaceCard } from "./components/PlaceCard";
+import { PlaceDetailModal } from "./components/PlaceDetailModal";
 import { PlaceMap } from "./components/PlaceMap";
 import { TeamPanel } from "./components/TeamPanel";
 import { VibeComposer } from "./components/VibeComposer";
@@ -15,8 +17,10 @@ import {
   CHIANG_MAI,
   DEFAULT_REGION,
   DEMO_CHIPS,
+  POPULAR_SEARCHES,
   EXPLAINING_COPY,
   LOADING_COPY,
+  nextStepSearches,
   type AssistantStatus,
   type ChatSummary,
   type ChatTurn,
@@ -75,38 +79,7 @@ function confirmCopy(action: ConfirmAction): { title: string; description: strin
 
 export function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [ready, setReady] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    const restore = async () => {
-      if (!hasAuthSession()) {
-        if (!cancelled) setReady(true);
-        return;
-      }
-      try {
-        const me = await api.me();
-        if (!cancelled) setUser(me);
-      } catch {
-        clearAuthSession();
-        if (!cancelled) setUser(null);
-      } finally {
-        if (!cancelled) setReady(true);
-      }
-    };
-    void restore();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (!ready) {
-    return (
-      <div className="auth-screen">
-        <p className="auth-lede">กำลังตรวจเซสชัน</p>
-      </div>
-    );
-  }
   if (!user) {
     return <AuthScreen onAuthed={setUser} />;
   }
@@ -152,6 +125,11 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [confirmError, setConfirmError] = useState("");
+  const [openAttId, setOpenAttId] = useState<string | null>(null);
+  const [focusAttId, setFocusAttId] = useState<string | null>(null);
+  const resultPlaces = result?.places || [];
+  const anchorPlace =
+    resultPlaces.find((item) => item.att_id === focusAttId) || resultPlaces[0] || null;
 
   const bumpLayout = useCallback(() => setLayoutTick((n) => n + 1), []);
   useColumnResize({ onChange: bumpLayout });
@@ -215,6 +193,8 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     const filterOnly = opts?.prefer !== undefined || opts?.province !== undefined;
     setLoading(true);
     setExplaining(false);
+    setFocusAttId(null);
+    setOpenAttId(null);
     if (!filterOnly) setResult(null);
     setQuery(q);
     if (!filterOnly) {
@@ -520,9 +500,6 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
           <button type="button" className="drawer-btn" onClick={() => setHistoryOpen((v) => !v)}>
             ประวัติ
           </button>
-          <button type="button" onClick={newChat}>
-            แชทใหม่
-          </button>
           {isAdmin ? (
             <button
               type="button"
@@ -585,8 +562,17 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
             {!result && !loading && thread.length === 0 ? (
               <div className="welcome">
                 <h2>พิมพ์มู้ดแล้วค้นจากฐาน ททท.</h2>
-                <p>เปิดมาก็ไม่มีการ์ดปลอม ผลขึ้นเมื่อค้นจริงเท่านั้น</p>
-                <div className="chips" data-component="DemoChips">
+                <p>เปิดมาก็ไม่มีการ์ดปลอม ผลขึ้นเมื่อค้นจริงเท่านั้น กดคำค้นหายอดนิยมด้านล่างได้เลย</p>
+                <p className="chips-label">คำค้นหายอดนิยม</p>
+                <div className="chips popular" data-component="PopularSearches">
+                  {POPULAR_SEARCHES.map((chip) => (
+                    <button key={chip.q} type="button" onClick={() => void search(chip.q, { fresh: true })}>
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="chips-label demo">เคสเดโม</p>
+                <div className="chips demo" data-component="DemoChips">
                   {DEMO_CHIPS.map((chip) => (
                     <button key={chip.q} type="button" onClick={() => void search(chip.q, { fresh: true })}>
                       {chip.label}
@@ -597,31 +583,56 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
             ) : null}
             <ChatThread turns={thread} />
             {meta ? <p className="meta">{meta}</p> : null}
-            <div className="cards">
-              {loading
-                ? Array.from({ length: 6 }, (_, index) => (
-                    <article key={index} className="card skeleton" aria-hidden>
-                      <div className="cover" />
-                      <div className="card-body">
-                        <div className="sk sk-title" />
-                        <div className="sk sk-line" />
-                        <div className="sk sk-line" />
-                      </div>
-                    </article>
-                  ))
-                : (result?.places || []).map((place, index) => (
-                    <PlaceCard
-                      key={place.att_id}
-                      place={place}
-                      rank={index + 1}
-                      rating={result ? ratings[`${result.message_id}:${place.att_id}`] || 0 : 0}
-                      showScores={showScores}
-                      onVote={(value) => void vote(place, value)}
-                      onUpload={() => pickUpload(place.att_id)}
-                      onFavoriteCover={(imageId) => void favorite(place, imageId)}
-                    />
-                  ))}
-            </div>
+            {loading || (result && result.places.length > 0) ? (
+              <details className="cards-fold" open key={result?.message_id || "loading"}>
+                <summary className="cards-head">
+                  <h2>
+                    {loading ? "6" : result?.places.length} recommended vibe places
+                    <span> ( {region} )</span>
+                  </h2>
+                  <p>Limit: 6 cards strictly</p>
+                </summary>
+                <div className="cards">
+                  {loading
+                    ? Array.from({ length: 6 }, (_, index) => (
+                        <article key={index} className="card skeleton" aria-hidden>
+                          <div className="cover" />
+                          <div className="card-body">
+                            <div className="sk sk-title" />
+                            <div className="sk sk-line" />
+                            <div className="sk sk-line" />
+                          </div>
+                        </article>
+                      ))
+                    : (result?.places || []).map((place, index) => (
+                        <PlaceCard
+                          key={place.att_id}
+                          place={place}
+                          rank={index + 1}
+                          rating={result ? ratings[`${result.message_id}:${place.att_id}`] || 0 : 0}
+                          showScores={showScores}
+                          onVote={(value) => void vote(place, value)}
+                          onUpload={() => pickUpload(place.att_id)}
+                          onFavoriteCover={(imageId) => void favorite(place, imageId)}
+                          focused={focusAttId === place.att_id}
+                          onFocus={() => setFocusAttId(place.att_id)}
+                          onOpen={() => {
+                            setOpenAttId(place.att_id);
+                            setFocusAttId(place.att_id);
+                          }}
+                        />
+                      ))}
+                </div>
+              </details>
+            ) : null}
+            {!loading && anchorPlace ? (
+              <NextSteps
+                place={anchorPlace}
+                places={resultPlaces}
+                onPick={(text) => void search(text, { fresh: false })}
+                onFocus={setFocusAttId}
+              />
+            ) : null}
           </div>
           <VibeComposer
             query={draft}
@@ -629,6 +640,10 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
             lastVibe={query}
             onQuery={setDraft}
             onSubmit={() => void search(draft, { fresh: false })}
+            suggestions={anchorPlace ? [] : thread.length || result || loading ? POPULAR_SEARCHES : []}
+            onSuggest={(text) => void search(text, { fresh: true })}
+            nextSteps={anchorPlace ? nextStepSearches(anchorPlace) : []}
+            onNextStep={(text) => void search(text, { fresh: false })}
           />
         </section>
 
@@ -641,7 +656,11 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
           tabIndex={0}
         />
 
-        <PlaceMap points={result?.map_points || []} layoutTick={layoutTick} />
+        <PlaceMap
+          points={result?.map_points || []}
+          layoutTick={layoutTick}
+          focusId={focusAttId}
+        />
       </div>
 
       {isAdmin ? (
@@ -675,6 +694,28 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
         error={confirmError}
         onConfirm={() => void runConfirm()}
         onCancel={closeConfirm}
+      />
+      <PlaceDetailModal
+        place={result?.places.find((item) => item.att_id === openAttId) || null}
+        rating={
+          result && openAttId ? ratings[`${result.message_id}:${openAttId}`] || 0 : 0
+        }
+        onClose={() => setOpenAttId(null)}
+        onVote={(value) => {
+          const place = result?.places.find((item) => item.att_id === openAttId);
+          if (place) void vote(place, value);
+        }}
+        onUpload={() => {
+          if (openAttId) pickUpload(openAttId);
+        }}
+        onFavorite={(imageId) => {
+          const place = result?.places.find((item) => item.att_id === openAttId);
+          if (place) void favorite(place, imageId);
+        }}
+        onNext={(text) => {
+          setOpenAttId(null);
+          void search(text, { fresh: false });
+        }}
       />
     </div>
   );

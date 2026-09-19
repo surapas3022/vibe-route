@@ -19,6 +19,8 @@ def listing_to_place(row: dict[str, Any], *, why: str, images: list[PlaceImage] 
         district=row.get("district"),
         type_label=row.get("type_label"),
         why=why,
+        detail=facts.clean_text(row.get("detail_clean")),
+        highlight=facts.clean_text(row.get("highlight")),
         score_vector=float(row.get("score_vector") or 0),
         score_ranked=float(row.get("score_ranked") or row.get("score_vector") or 0),
         fee=fee,

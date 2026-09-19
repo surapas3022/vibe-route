@@ -86,9 +86,58 @@ export function errorMessage(body: unknown, fallback: string, status?: number): 
 }
 
 function requestTimeoutMs(path: string): number {
+  if (path === "/v1/health") return 50000;
   if (path === "/v1/search") return 25000;
   if (path.includes("/explain")) return 35000;
   return 20000;
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => resolve(), ms);
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+export function isWakeError(err: unknown): boolean {
+  const status = err && typeof err === "object" && "status" in err ? Number(err.status) : 0;
+  if (status === 502 || status === 503 || status === 504 || status === 404) return true;
+  const msg = err instanceof Error ? err.message : "";
+  return /รีสตาร์ท|เชื่อมเซิร์ฟเวอร์|TimeoutError|Failed to fetch|NetworkError|NOT_FOUND/i.test(msg);
+}
+
+export async function waitForHealth(options?: {
+  signal?: AbortSignal;
+  maxWaitMs?: number;
+  onTick?: (info: { elapsedMs: number; attempt: number }) => void;
+}): Promise<import("./types").HealthResponse> {
+  const maxWaitMs = options?.maxWaitMs ?? 120000;
+  const started = Date.now();
+  let attempt = 0;
+  while (true) {
+    if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    attempt += 1;
+    options?.onTick?.({ elapsedMs: Date.now() - started, attempt });
+    try {
+      return await request<import("./types").HealthResponse>("/v1/health");
+    } catch (err) {
+      if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      if (Date.now() - started >= maxWaitMs) {
+        const fail = new Error("เซิร์ฟเวอร์ยังไม่พร้อม ลองอีกครั้งได้เลย") as Error & { status?: number };
+        fail.status = err && typeof err === "object" && "status" in err ? Number(err.status) : 503;
+        throw fail;
+      }
+      await sleep(2500, options?.signal);
+    }
+  }
 }
 
 async function rawRequest(path: string, options: RequestInit, token: string): Promise<Response> {

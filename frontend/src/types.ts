@@ -30,6 +30,8 @@ export type Place = {
   district: string | null;
   type_label: string | null;
   why: string;
+  detail?: string | null;
+  highlight?: string | null;
   score_vector: number;
   score_ranked: number;
   fee: FactField;
@@ -101,10 +103,79 @@ export const EXPLAINING_COPY = "การ์ดด้านล่างมาจ
 export const CHIANG_MAI = "เชียงใหม่";
 export const DEFAULT_REGION = "ภาคเหนือ";
 
-export const DEMO_CHIPS = [
+export const POPULAR_SEARCHES = [
   { q: "อยากไปที่เงียบๆ สโลว์ไลฟ์ หลีกหนีความวุ่นวาย", label: "สโลว์ไลฟ์ เงียบ" },
-  { q: "พาเด็กเที่ยวชุมชน ไม่ใช่วัดดังในเชียงใหม่", label: "ชุมชน ไม่ใช่วัดดังเชียงใหม่" },
+  { q: "ที่เที่ยวอากาศหนาว ทะเลหมอก ดอยสูง", label: "หนาว ทะเลหมอก" },
+  { q: "พาเด็กเที่ยวชุมชน ไม่ใช่วัดดังในเชียงใหม่", label: "ชุมชน พาเด็ก" },
+  { q: "น้ำตกในป่า เดินชิลล์ ไม่ยาก", label: "น้ำตก เดินป่า" },
+  { q: "วัดเชียงราย สงบ ไม่พลุกพล่าน", label: "วัดเชียงราย สงบ" },
+  { q: "คาเฟ่วิวภูเขา ชนบท", label: "คาเฟ่ภูเขา" },
+  { q: "ตลาดเช้า ของกินเหนือ", label: "ตลาดเช้า ของกิน" },
+  { q: "ดูดาว ค้างคืนอากาศเย็น", label: "ดูดาว ค้างคืน" },
+] as const;
+
+export const DEMO_CHIPS = [
   { q: "เมืองเก่าอุทัยธานี ค่าเข้าชม", label: "ไม่มีค่าเข้าชมในฐาน" },
   { q: "คุ้มเจ้าบุรีรัตน์ ค่าเข้าชม", label: "มีค่าเข้าชม 60 บาท" },
   { q: "ทะเลภูเก็ต", label: "ผลว่าง (นอกภาค)" },
 ] as const;
+
+export const ITINERARY_SLOTS = ["เช้า", "สาย", "บ่าย", "เย็น", "ค่ำ", "สำรอง"] as const;
+
+export function nextStepSearches(place: Place): Array<{ q: string; label: string }> {
+  const where = [place.district, place.province].filter(Boolean).join(" ");
+  const name = place.name_th;
+  return [
+    {
+      q: `${name} โฮมสเตย์ ที่พักชุมชน ${where} แนะนำหน่อย`,
+      label: "ที่พัก / โฮมสเตย์ใกล้ที่นี่",
+    },
+    {
+      q: `แผนเที่ยว 1 วันแถว ${where} ต่อจาก ${name} เที่ยวยังไง`,
+      label: "แผนเที่ยว 1 วันจากฐาน",
+    },
+    {
+      q: `${name} ของกิน ตลาด อาหารพื้นบ้าน ${where} แนะนำหน่อย`,
+      label: "ของกินแถวนี้",
+    },
+    {
+      q: `จุดแวะถัดไปใกล้ ${name} ${where} น้ำตก วัด ชุมชน แนะนำหน่อย`,
+      label: "จุดแวะต่อ",
+    },
+  ];
+}
+
+function haversineKm(a: Place, b: Place): number {
+  if (a.lat == null || a.lng == null || b.lat == null || b.lng == null) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const earthKm = 6371;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const lat1 = (a.lat * Math.PI) / 180;
+  const lat2 = (b.lat * Math.PI) / 180;
+  const h =
+    Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * earthKm * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+export function itineraryOrder(places: Place[], startId?: string | null): Place[] {
+  if (places.length <= 1) return places.slice();
+  const remaining = places.slice();
+  const startIndex = startId ? remaining.findIndex((item) => item.att_id === startId) : 0;
+  const ordered = [remaining.splice(startIndex >= 0 ? startIndex : 0, 1)[0]];
+  while (remaining.length) {
+    const current = ordered[ordered.length - 1];
+    let best = 0;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    remaining.forEach((item, index) => {
+      const distance = haversineKm(current, item);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = index;
+      }
+    });
+    ordered.push(remaining.splice(best, 1)[0]);
+  }
+  return ordered;
+}

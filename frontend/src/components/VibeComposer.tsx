@@ -4,6 +4,10 @@ type Props = {
   lastVibe: string;
   onQuery: (value: string) => void;
   onSubmit: () => void;
+  suggestions?: ReadonlyArray<{ q: string; label: string }>;
+  onSuggest?: (query: string) => void;
+  nextSteps?: ReadonlyArray<{ q: string; label: string }>;
+  onNextStep?: (query: string) => void;
 };
 
 function clipVibe(text: string): string {
@@ -12,15 +16,49 @@ function clipVibe(text: string): string {
   return clean.slice(0, 42) + "…";
 }
 
-export function VibeComposer({ query, continuing, lastVibe, onQuery, onSubmit }: Props) {
+export function VibeComposer({
+  query,
+  continuing,
+  lastVibe,
+  onQuery,
+  onSubmit,
+  suggestions = [],
+  onSuggest,
+  nextSteps = [],
+  onNextStep,
+}: Props) {
   return (
     <div className="composer-wrap">
       {continuing ? (
         <p className="composer-hint">
           {lastVibe
-            ? `กำลังต่อจาก «${clipVibe(lastVibe)}» พิมพ์เพิ่มได้ ระบบยึดมู้ดเดิม`
+            ? `กำลังต่อจาก «${clipVibe(lastVibe)}» พิมพ์แผน ที่พัก หรือของกินได้ ระบบยึดมู้ดเดิม`
             : "พิมพ์ต่อในแชทนี้ได้ ระบบยึดมู้ดเดิมแล้วค้นใหม่ตามที่เพิ่ม"}
         </p>
+      ) : null}
+      {nextSteps.length ? (
+        <div className="composer-popular">
+          <p className="chips-label">แนะนำต่อ — แผน / ที่พัก</p>
+          <div className="chips next">
+            {nextSteps.map((chip) => (
+              <button key={chip.q} type="button" onClick={() => onNextStep?.(chip.q)}>
+                {chip.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {suggestions.length ? (
+        <div className="composer-popular">
+          <p className="chips-label">คำค้นหายอดนิยม</p>
+          <div className="chips popular">
+            {suggestions.map((chip) => (
+              <button key={chip.q} type="button" onClick={() => onSuggest?.(chip.q)}>
+                {chip.label}
+              </button>
+            ))}
+          </div>
+        </div>
       ) : null}
       <form
         className="composer"
@@ -36,7 +74,7 @@ export function VibeComposer({ query, continuing, lastVibe, onQuery, onSubmit }:
           autoComplete="off"
           placeholder={
             continuing
-              ? "เช่น เอาเชียงราย หรือ ไม่เอาวัดดัง"
+              ? "เช่น ที่พักใกล้ที่นี่ หรือ แผนเที่ยว 1 วัน"
               : "เช่น อยากไปที่เงียบๆ สโลว์ไลฟ์ หลีกหนีความวุ่นวาย"
           }
           value={query}

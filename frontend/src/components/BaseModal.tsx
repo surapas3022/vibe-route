@@ -6,6 +6,7 @@ export type BaseModalProps = {
   children: ReactNode;
   footer?: ReactNode;
   tone?: "default" | "danger";
+  size?: "default" | "wide";
   dismissible?: boolean;
   onClose: () => void;
 };
@@ -16,6 +17,7 @@ export function BaseModal({
   children,
   footer,
   tone = "default",
+  size = "default",
   dismissible = true,
   onClose,
 }: BaseModalProps) {
@@ -78,7 +80,7 @@ export function BaseModal({
       />
       <div
         ref={panelRef}
-        className={tone === "danger" ? "modal-panel danger" : "modal-panel"}
+        className={`${tone === "danger" ? "modal-panel danger" : "modal-panel"}${size === "wide" ? " wide" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

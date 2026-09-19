@@ -52,3 +52,25 @@ def test_named_place_outranks_higher_vector_score():
 def test_secondary_count():
     places = [{"province": "น่าน"}, {"province": "เชียงใหม่"}]
     assert secondary_count(places) == 1
+
+
+def test_lodging_query_prefers_homestay():
+    cave = {
+        "att_id": "cave",
+        "name_th": "ถ้ำน้ำบ่อผี",
+        "province": "น่าน",
+        "score_vector": 0.9,
+    }
+    stay = {
+        "att_id": "stay",
+        "name_th": "โฮมสเตย์ศิลาเพชร",
+        "province": "น่าน",
+        "score_vector": 0.61,
+    }
+    ranked = sort_candidates(
+        [cave, stay],
+        prefer_secondary=True,
+        limit=2,
+        query="ชุมชนศิลาเพชร โฮมสเตย์ ที่พักชุมชน แนะนำหน่อย",
+    )
+    assert ranked[0]["att_id"] == "stay"
