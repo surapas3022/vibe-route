@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, clearAuthSession, type AuthUser } from "./api";
+import {
+  api,
+  cacheUser,
+  clearAuthSession,
+  getCachedUser,
+  hasAuthSession,
+  isWakeError,
+  type AuthUser,
+} from "./api";
 import { AssistantBar } from "./components/AssistantBar";
 import { AuthScreen } from "./components/AuthScreen";
 import { ChatHistory } from "./components/ChatHistory";
@@ -78,10 +86,38 @@ function confirmCopy(action: ConfirmAction): { title: string; description: strin
 }
 
 export function App() {
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(() => getCachedUser());
+
+  useEffect(() => {
+    if (!hasAuthSession()) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const me = await api.me();
+        if (cancelled) return;
+        cacheUser(me);
+        setUser(me);
+      } catch (err) {
+        if (cancelled) return;
+        if (isWakeError(err) && getCachedUser()) return;
+        clearAuthSession();
+        setUser(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (!user) {
-    return <AuthScreen onAuthed={setUser} />;
+    return (
+      <AuthScreen
+        onAuthed={(next) => {
+          cacheUser(next);
+          setUser(next);
+        }}
+      />
+    );
   }
   return (
     <Workbench

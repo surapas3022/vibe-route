@@ -37,14 +37,64 @@ function getRefreshToken(): string {
   return localStorage.getItem(REFRESH_KEY) || "";
 }
 
+const USER_KEY = "viberoute_user";
+
+export function cacheUser(user: AuthUser): void {
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+}
+
+export function getCachedUser(): AuthUser | null {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    if (raw) {
+      const user = JSON.parse(raw) as AuthUser;
+      if (user?.id && user.email && (user.role === "admin" || user.role === "general")) {
+        return user;
+      }
+    }
+  } catch {
+    /* fall through to token */
+  }
+  return userFromAccessToken();
+}
+
+function userFromAccessToken(): AuthUser | null {
+  const token = getAccessToken();
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  try {
+    const padded = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const pad = "=".repeat((4 - (padded.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded + pad)) as {
+      sub?: string;
+      email?: string;
+      user_metadata?: { email?: string };
+      email_confirmed?: boolean;
+    };
+    const id = String(payload.sub || "");
+    const email = String(payload.email || payload.user_metadata?.email || "");
+    if (!id || !email) return null;
+    return {
+      id,
+      email,
+      role: "general",
+      email_confirmed: Boolean(payload.email_confirmed),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function setAuthSession(payload: AuthResponse): void {
   localStorage.setItem(TOKEN_KEY, payload.access_token);
   if (payload.refresh_token) localStorage.setItem(REFRESH_KEY, payload.refresh_token);
+  cacheUser(payload.user);
 }
 
 export function clearAuthSession(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(REFRESH_KEY);
+  localStorage.removeItem(USER_KEY);
 }
 
 export function hasAuthSession(): boolean {
