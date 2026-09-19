@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app import db
 from app.deps import require_session
+from app.places import attach_live_images
 from app.schemas import Place
 
 router = APIRouter()
@@ -86,6 +87,7 @@ def get_chat(chat_id: str, session_id: str = Depends(require_session)):
     )
     packed = []
     for row in messages.data or []:
+        places = [Place.model_validate(item) for item in row.get("places") or []]
         packed.append(
             {
                 "id": row["id"],
@@ -93,7 +95,7 @@ def get_chat(chat_id: str, session_id: str = Depends(require_session)):
                 "intro": row["intro"],
                 "assistant": row.get("assistant") or {},
                 "prefer_secondary": row["prefer_secondary"],
-                "places": [Place.model_validate(item).model_dump() for item in row.get("places") or []],
+                "places": [item.model_dump() for item in attach_live_images(places, session_id)],
                 "map_points": row.get("map_points") or [],
                 "created_at": row["created_at"],
             }

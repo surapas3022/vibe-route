@@ -47,6 +47,20 @@ function replacePendingTurn(turns: ChatTurn[], next: ChatTurn): ChatTurn[] {
   return [...withoutPending, next];
 }
 
+function mergePlaceImages(fromApi: Place[], fromCurrent: Place[] | undefined): Place[] {
+  if (!fromCurrent?.length) return fromApi;
+  return fromApi.map((place) => {
+    const current = fromCurrent.find((item) => item.att_id === place.att_id);
+    if (!current?.images.length) return place;
+    const byId = new Map(place.images.map((img) => [img.id, img]));
+    for (const img of current.images) {
+      if (!byId.has(img.id)) byId.set(img.id, img);
+    }
+    const images = [...byId.values()].map((img, index) => ({ ...img, is_cover: index === 0 }));
+    return { ...place, images };
+  });
+}
+
 const FALLBACK_ASSISTANT: AssistantStatus = {
   level: "off",
   label: "ผู้ช่วยยังไม่พร้อม",
@@ -60,7 +74,8 @@ function roleLabel(role: AuthUser["role"]): string {
 type ConfirmAction =
   | { kind: "logout" }
   | { kind: "delete-chat"; chat: ChatSummary }
-  | { kind: "delete-all" };
+  | { kind: "delete-all" }
+  | { kind: "delete-image"; attId: string; imageId: string };
 
 function confirmCopy(action: ConfirmAction): { title: string; description: string; confirmLabel: string } {
   if (action.kind === "logout") {
@@ -76,6 +91,13 @@ function confirmCopy(action: ConfirmAction): { title: string; description: strin
       description:
         "แชทจะหายจากรายการของคุณ กู้กลับมาที่หน้านี้ไม่ได้ ระบบยังเก็บข้อความไว้เพื่อพัฒนาการค้นหา",
       confirmLabel: "เอาออกจากประวัติ",
+    };
+  }
+  if (action.kind === "delete-image") {
+    return {
+      title: "เอาออกรูปนี้?",
+      description: "รูปที่คุณอัปโหลดจะหายจากสถานที่นี้ คนอื่นจะไม่เห็นแล้ว",
+      confirmLabel: "เอาออกรูป",
     };
   }
   return {
@@ -163,6 +185,7 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   const [confirmError, setConfirmError] = useState("");
   const [openAttId, setOpenAttId] = useState<string | null>(null);
   const [focusAttId, setFocusAttId] = useState<string | null>(null);
+  const [uploadingAttId, setUploadingAttId] = useState<string | null>(null);
   const resultPlaces = result?.places || [];
   const anchorPlace =
     resultPlaces.find((item) => item.att_id === focusAttId) || resultPlaces[0] || null;
@@ -287,7 +310,11 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
         logTeam({ method: "POST", path: "/v1/messages/" + res.message_id + "/explain" }, explained);
         const nextAssistant =
           explained.assistant.level === "off" ? res.assistant : explained.assistant;
-        setResult({ ...explained, assistant: nextAssistant });
+        setResult((prev) => ({
+          ...explained,
+          assistant: nextAssistant,
+          places: mergePlaceImages(explained.places, prev?.places),
+        }));
         setAssistant(nextAssistant);
         setThread((prev) =>
           prev.map((turn) =>
@@ -411,6 +438,20 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
         await api.deleteChat(id);
         if (activeChatId === id) newChat();
         await refreshChats();
+      } else if (confirmAction.kind === "delete-image") {
+        await api.deleteImage(confirmAction.imageId);
+        if (result) {
+          setResult({
+            ...result,
+            places: result.places.map((item) => {
+              if (item.att_id !== confirmAction.attId) return item;
+              const images = item.images
+                .filter((img) => img.id !== confirmAction.imageId)
+                .map((img, index) => ({ ...img, is_cover: index === 0 }));
+              return { ...item, images };
+            }),
+          });
+        }
       } else {
         await api.deleteAllChats();
         newChat();
@@ -462,34 +503,46 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   };
 
   const pickUpload = (attId: string) => {
+    if (uploadingAttId) return;
     uploadAttId.current = attId;
     fileRef.current?.click();
   };
 
+  const askDeleteImage = (attId: string, imageId: string) => {
+    askConfirm({ kind: "delete-image", attId, imageId });
+  };
+
   const onFile = async (file: File | undefined) => {
-    if (!file || !uploadAttId.current || !result) return;
+    if (!file || !uploadAttId.current || !result || uploadingAttId) return;
     const okType = /image\/(jpeg|png|webp)/.test(file.type);
     if (!okType || file.size > 5 * 1024 * 1024) {
       alert("รับเฉพาะ jpg png webp ขนาดไม่เกิน 5MB");
       return;
     }
     const attId = uploadAttId.current;
+    setUploadingAttId(attId);
     try {
       const saved = await api.uploadImage(attId, file);
       saved.is_cover = true;
-      setResult({
-        ...result,
-        places: result.places.map((item) =>
-          item.att_id !== attId
-            ? item
-            : {
-                ...item,
-                images: [saved, ...item.images.map((img) => ({ ...img, is_cover: false }))],
-              },
-        ),
+      saved.viewer_owned = true;
+      setResult((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          places: prev.places.map((item) =>
+            item.att_id !== attId
+              ? item
+              : {
+                  ...item,
+                  images: [saved, ...item.images.map((img) => ({ ...img, is_cover: false }))],
+                },
+          ),
+        };
       });
     } catch (err) {
       alert(err instanceof Error ? err.message : "อัปโหลดไม่สำเร็จ");
+    } finally {
+      setUploadingAttId(null);
     }
   };
 
@@ -647,9 +700,19 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
                           rank={index + 1}
                           rating={result ? ratings[`${result.message_id}:${place.att_id}`] || 0 : 0}
                           showScores={showScores}
+                          uploading={uploadingAttId === place.att_id}
                           onVote={(value) => void vote(place, value)}
                           onUpload={() => pickUpload(place.att_id)}
                           onFavoriteCover={(imageId) => void favorite(place, imageId)}
+                          onRemoveCover={
+                            (place.images.find((img) => img.is_cover) || place.images[0])?.viewer_owned
+                              ? () => {
+                                  const cover =
+                                    place.images.find((img) => img.is_cover) || place.images[0];
+                                  if (cover) askDeleteImage(place.att_id, cover.id);
+                                }
+                              : undefined
+                          }
                           focused={focusAttId === place.att_id}
                           onFocus={() => setFocusAttId(place.att_id)}
                           onOpen={() => {
@@ -736,6 +799,7 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
         rating={
           result && openAttId ? ratings[`${result.message_id}:${openAttId}`] || 0 : 0
         }
+        uploading={Boolean(openAttId && uploadingAttId === openAttId)}
         onClose={() => setOpenAttId(null)}
         onVote={(value) => {
           const place = result?.places.find((item) => item.att_id === openAttId);
@@ -747,6 +811,9 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
         onFavorite={(imageId) => {
           const place = result?.places.find((item) => item.att_id === openAttId);
           if (place) void favorite(place, imageId);
+        }}
+        onDelete={(imageId) => {
+          if (openAttId) askDeleteImage(openAttId, imageId);
         }}
         onNext={(text) => {
           setOpenAttId(null);

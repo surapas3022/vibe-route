@@ -28,6 +28,11 @@ def test_delete_all_chats_requires_auth():
     assert response.status_code == 401
 
 
+def test_delete_image_requires_auth():
+    response = client.delete("/v1/images/00000000-0000-0000-0000-000000000001")
+    assert response.status_code == 401
+
+
 def test_explain_requires_auth():
     response = client.post("/v1/messages/00000000-0000-0000-0000-000000000001/explain")
     assert response.status_code == 401

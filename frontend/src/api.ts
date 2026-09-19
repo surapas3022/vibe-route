@@ -139,6 +139,7 @@ function requestTimeoutMs(path: string): number {
   if (path === "/v1/health") return 50000;
   if (path === "/v1/search") return 25000;
   if (path.includes("/explain")) return 35000;
+  if (path.includes("/places/") && path.endsWith("/images")) return 60000;
   return 20000;
 }
 
@@ -323,4 +324,8 @@ export const api = {
       "/v1/images/" + encodeURIComponent(imageId) + "/favorite",
       { method: "POST" },
     ),
+  deleteImage: (imageId: string) =>
+    request<{ ok: boolean; id: string }>("/v1/images/" + encodeURIComponent(imageId), {
+      method: "DELETE",
+    }),
 };

@@ -90,3 +90,25 @@ def toggle_favorite(image_id: str, session_id: str = Depends(require_session)):
     if not found:
         raise HTTPException(status_code=404, detail="ไม่พบรูป")
     return found
+
+
+@router.delete("/v1/images/{image_id}")
+def delete_image(image_id: str, session_id: str = Depends(require_session)):
+    if not db.supabase_configured():
+        raise HTTPException(status_code=503, detail="ยังไม่ได้ตั้งค่า Supabase")
+    client = db.get_supabase()
+    image = client.table("place_images").select("*").eq("id", image_id).execute()
+    if not image.data:
+        raise HTTPException(status_code=404, detail="ไม่พบรูป")
+    row = image.data[0]
+    if row.get("uploader_session") != session_id:
+        raise HTTPException(status_code=403, detail="ลบได้เฉพาะรูปที่คุณอัปโหลด")
+    path = row.get("storage_path")
+    client.table("place_images").delete().eq("id", image_id).eq("uploader_session", session_id).execute()
+    if path:
+        settings = get_settings()
+        try:
+            client.storage.from_(settings.storage_bucket).remove([path])
+        except Exception:
+            pass
+    return {"ok": True, "id": image_id}

@@ -11,6 +11,8 @@ type Props = {
   onOpen: () => void;
   onFocus: () => void;
   focused?: boolean;
+  uploading?: boolean;
+  onRemoveCover?: () => void;
 };
 
 function coverOf(place: Place) {
@@ -28,6 +30,8 @@ export function PlaceCard({
   onOpen,
   onFocus,
   focused,
+  uploading,
+  onRemoveCover,
 }: Props) {
   const cover = coverOf(place);
   const unknownFee = place.fee.status !== "confirmed";
@@ -78,6 +82,24 @@ export function PlaceCard({
             <strong>{cover.fav_count}</strong>
             <span>(Top Cover)</span>
           </button>
+        ) : null}
+        {onRemoveCover ? (
+          <button
+            type="button"
+            className="cover-delete"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemoveCover();
+            }}
+          >
+            ลบรูป
+          </button>
+        ) : null}
+        {uploading ? (
+          <div className="cover-upload" aria-live="polite">
+            <span className="auth-spinner" aria-hidden="true" />
+            <strong>กำลังอัปโหลดรูป</strong>
+          </div>
         ) : null}
       </div>
       <div className="card-body">
@@ -154,8 +176,8 @@ export function PlaceCard({
               <ThumbDownIcon /> ไม่ตรง
             </button>
           </div>
-          <button type="button" className="upload-btn" onClick={onUpload}>
-            <CamIcon /> +เพิ่มรูป
+          <button type="button" className="upload-btn" onClick={onUpload} disabled={uploading}>
+            <CamIcon /> {uploading ? "กำลังอัปโหลด" : "+เพิ่มรูป"}
           </button>
           <button type="button" className="detail-btn" onClick={onOpen}>
             ดูรายละเอียด

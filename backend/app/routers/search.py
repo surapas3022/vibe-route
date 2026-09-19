@@ -219,10 +219,6 @@ async def search(body: SearchRequest, session_id: str = Depends(require_session)
         limit=settings.result_k,
         query=body.query,
     )
-    try:
-        images = place_mod.load_images([row["att_id"] for row in ranked], session_id)
-    except Exception:
-        images = {row["att_id"]: [] for row in ranked}
     built = []
     for row in ranked:
         built.append(
@@ -235,9 +231,9 @@ async def search(body: SearchRequest, session_id: str = Depends(require_session)
                     row.get("detail_clean"),
                     limit=420 if rewrite.name_hit(body.query, row.get("name_th")) else 180,
                 ),
-                images=images.get(row["att_id"], []),
             )
         )
+    built = place_mod.attach_live_images(built, session_id)
 
     empty = not built
     focus_name = next(
@@ -277,7 +273,10 @@ async def explain_message(message_id: str, session_id: str = Depends(require_ses
     if not db.supabase_configured():
         raise HTTPException(status_code=503, detail="ยังไม่ได้ตั้งค่า Supabase")
     row = _owned_message(message_id, session_id)
-    places = [Place.model_validate(item) for item in row.get("places") or []]
+    places = place_mod.attach_live_images(
+        [Place.model_validate(item) for item in row.get("places") or []],
+        session_id,
+    )
     map_points = row.get("map_points") or []
     assistant = row.get("assistant") or llm.health_assistant().model_dump()
     prior: list[str] = []

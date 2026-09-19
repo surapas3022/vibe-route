@@ -27,3 +27,22 @@ def test_listing_includes_tat_detail():
     assert place.highlight == "ทะเลหมอกยามเช้า"
     assert place.hours.text == "05:00 - 18:00"
     assert "300" in place.fee.label
+
+
+def test_pack_image_marks_owner():
+    from app.places import pack_image
+
+    row = {
+        "id": "img-1",
+        "att_id": "A1",
+        "public_url": "https://example.test/a.jpg",
+        "fav_count": 2,
+        "uploader_session": "user-1",
+        "moderation_status": "accepted",
+    }
+    owned = pack_image(row, session_id="user-1", is_cover=True, viewer_faved=False)
+    other = pack_image(row, session_id="user-2", is_cover=False, viewer_faved=True)
+    assert owned.viewer_owned is True
+    assert owned.is_cover is True
+    assert other.viewer_owned is False
+    assert other.viewer_faved is True

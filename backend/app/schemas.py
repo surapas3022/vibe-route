@@ -26,6 +26,7 @@ class PlaceImage(BaseModel):
     fav_count: int = 0
     is_cover: bool = False
     viewer_faved: bool = False
+    viewer_owned: bool = False
     moderation_status: Literal["accepted", "pending", "rejected"] = "accepted"
 
 

@@ -20,6 +20,7 @@ export type PlaceImage = {
   fav_count: number;
   is_cover: boolean;
   viewer_faved: boolean;
+  viewer_owned?: boolean;
   moderation_status?: string;
 };
 

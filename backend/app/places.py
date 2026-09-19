@@ -35,6 +35,25 @@ def listing_to_place(row: dict[str, Any], *, why: str, images: list[PlaceImage] 
     )
 
 
+def pack_image(
+    row: dict[str, Any],
+    *,
+    session_id: str,
+    is_cover: bool,
+    viewer_faved: bool,
+) -> PlaceImage:
+    return PlaceImage(
+        id=row["id"],
+        att_id=row["att_id"],
+        url=row["public_url"],
+        fav_count=int(row.get("fav_count") or 0),
+        is_cover=is_cover,
+        viewer_faved=viewer_faved,
+        viewer_owned=row.get("uploader_session") == session_id,
+        moderation_status=row.get("moderation_status") or "accepted",
+    )
+
+
 def map_points_for(places: list[Place]) -> list[MapPoint]:
     points = []
     for place in places:
@@ -81,16 +100,29 @@ def load_images(att_ids: list[str], session_id: str) -> dict[str, list[PlaceImag
         rows.sort(key=lambda item: (-int(item.get("fav_count") or 0), item.get("created_at") or ""))
         packed = []
         for index, row in enumerate(rows):
-            packed.append(
-                PlaceImage(
-                    id=row["id"],
-                    att_id=att_id,
-                    url=row["public_url"],
-                    fav_count=int(row.get("fav_count") or 0),
-                    is_cover=index == 0,
-                    viewer_faved=row["id"] in favs,
-                    moderation_status=row.get("moderation_status") or "accepted",
+            try:
+                packed.append(
+                    pack_image(
+                        row,
+                        session_id=session_id,
+                        is_cover=index == 0,
+                        viewer_faved=row["id"] in favs,
+                    )
                 )
-            )
+            except Exception:
+                continue
         images[att_id] = packed
     return images
+
+
+def attach_live_images(places: list[Place], session_id: str) -> list[Place]:
+    if not places:
+        return places
+    try:
+        loaded = load_images([place.att_id for place in places], session_id)
+    except Exception:
+        return places
+    return [
+        place.model_copy(update={"images": loaded.get(place.att_id, place.images)})
+        for place in places
+    ]
