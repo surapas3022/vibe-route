@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VibeRoute — frontend reference</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Thai:wght@600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    /* Hallmark · pre-emit critique: P4 H4 E5 S5 R4 V4
+     * route: product brief (กระดาษ/หมึก เที่ยวเหนือ) · not catalog
+     * paper: oklch(0.95 0.012 85) · ink: oklch(0.28 0.02 55) · accent: oklch(0.48 0.09 35)
+     * display: Noto Serif Thai · body: Sarabun
+     */
+    :root {
+      --font-display: "Noto Serif Thai", serif;
+      --font-body: "Sarabun", sans-serif;
+      --paper: oklch(0.95 0.012 85);
+      --paper-2: oklch(0.92 0.016 80);
+      --ink: oklch(0.28 0.02 55);
+      --muted: oklch(0.48 0.02 55);
+      --rule: oklch(0.84 0.018 80);
+      --accent: oklch(0.48 0.09 35);
+      --ok: oklch(0.42 0.06 145);
+      --warn: oklch(0.52 0.09 70);
+      --off: oklch(0.5 0.02 55);
+      --focus: oklch(0.48 0.09 35);
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { overflow-x: clip; }
+    html, body { height: 100%; margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font-body); }
+    h1, h2, h3 { font-family: var(--font-display); font-style: normal; font-weight: 700; overflow-wrap: anywhere; min-width: 0; }
+    button, a, input, select { font-family: inherit; }
+    button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid var(--focus); outline-offset: 2px;
+    }
+    .app { height: 100%; display: flex; flex-direction: column; }
+    header.app-bar {
+      display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+      padding: 12px 16px; border-bottom: 1px solid var(--rule); background: var(--paper-2);
+    }
+    .brand { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .brand h1 { margin: 0; font-size: 1.35rem; }
+    .brand p { margin: 0; color: var(--muted); font-size: 0.82rem; }
+    .assistant {
+      display: flex; flex-direction: column; gap: 2px; padding: 8px 12px;
+      border: 1px solid var(--rule); background: var(--paper); min-width: min(100%, 260px);
+    }
+    .assistant strong { font-size: 0.92rem; }
+    .assistant span { color: var(--muted); font-size: 0.78rem; }
+    .assistant[data-level="ready"] { border-color: var(--ok); }
+    .assistant[data-level="fallback"] { border-color: var(--warn); }
+    .assistant[data-level="off"] { border-color: var(--off); }
+    .bar-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .bar-actions button {
+      border: 1px solid var(--rule); background: var(--paper); color: var(--ink);
+      padding: 8px 12px; cursor: pointer;
+    }
+    .bar-actions button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+    .shell {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+      --history-w: 220px;
+      --map-w: 44%;
+    }
+    aside, .stage, .map-pane { min-width: 0; }
+    .history-col {
+      flex: 0 0 var(--history-w);
+      width: var(--history-w);
+      display: flex;
+      flex-direction: column;
+      border-right: 0;
+      min-height: 0;
+    }
+    .stage {
+      flex: 1 1 auto;
+      min-width: 280px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      border-right: 0;
+    }
+    .map-pane {
+      flex: 0 0 var(--map-w);
+      width: var(--map-w);
+      display: flex;
+      flex-direction: column;
+      min-width: 280px;
+      min-height: 0;
+    }
+    .gutter {
+      flex: 0 0 10px;
+      cursor: col-resize;
+      background: var(--paper-2);
+      border-left: 1px solid var(--rule);
+      border-right: 1px solid var(--rule);
+      position: relative;
+      touch-action: none;
+    }
+    .gutter::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 3px;
+      height: 36px;
+      transform: translate(-50%, -50%);
+      background: var(--ink);
+      opacity: 0.28;
+      border-radius: 2px;
+    }
+    .gutter:hover, .gutter:focus-visible { background: var(--rule); }
+    .dragging, .dragging * { cursor: col-resize !important; user-select: none; }
+    .history, .filters { padding: 12px 14px; }
+    .history h2, .map-pane h2, .filters h2 { margin: 0 0 8px; font-size: 0.95rem; }
+    .history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    .history-list button {
+      width: 100%; text-align: left; border: 1px solid var(--rule); background: var(--paper);
+      padding: 8px; cursor: pointer; color: var(--ink);
+    }
+    .history-list button[aria-current="true"] { border-color: var(--accent); }
+    .history-list small { display: block; color: var(--muted); }
+    .filters { border-top: 1px solid var(--rule); display: flex; flex-direction: column; gap: 10px; font-size: 0.85rem; }
+    .filters label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
+    .filters select { padding: 8px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); }
+    .toggle { display: flex; align-items: flex-start; gap: 8px; color: var(--ink); }
+    .toggle input { margin-top: 3px; }
+    .stage { min-width: 0; }
+    .history-col { min-height: 0; }
+    .history { flex: 1; overflow: auto; }
+    .feed { flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .welcome h2 { margin: 0 0 6px; font-size: 1.25rem; }
+    .welcome p, .intro, .empty { margin: 0; color: var(--muted); line-height: 1.55; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chips button {
+      border: 1px solid var(--rule); background: var(--paper-2); color: var(--ink);
+      padding: 8px 10px; cursor: pointer; text-align: left;
+    }
+    .meta { font-size: 0.82rem; color: var(--muted); }
+    .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .card { border: 1px solid var(--rule); background: var(--paper); display: flex; flex-direction: column; min-width: 0; }
+    .cover {
+      height: 128px; background: var(--paper-2); color: var(--ink); overflow: hidden;
+      display: grid; grid-template-columns: auto 1fr; align-items: end; gap: 10px;
+      padding: 12px; border-bottom: 1px solid var(--rule);
+    }
+    .cover img { width: 100%; height: 128px; object-fit: cover; display: block; }
+    .cover:has(img) { display: block; padding: 0; height: 128px; }
+    .cover-num {
+      width: 32px; height: 32px; border-radius: 999px; background: var(--ink); color: var(--paper);
+      display: grid; place-items: center; font-weight: 700; font-size: 0.9rem;
+    }
+    .cover-copy { min-width: 0; }
+    .cover-copy strong { display: block; font-size: 0.95rem; }
+    .cover-copy span { color: var(--muted); font-size: 0.75rem; }
+    .pin {
+      width: 26px; height: 26px; border-radius: 999px; background: var(--accent); color: var(--paper);
+      display: grid; place-items: center; font-size: 12px; font-weight: 700; border: 2px solid var(--paper);
+    }
+    .card-body { padding: 12px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+    .card-body h3 { margin: 0; font-size: 1.05rem; }
+    .place-meta { margin: 0; color: var(--muted); font-size: 0.82rem; }
+    .type { display: inline-block; border: 1px solid var(--rule); padding: 2px 6px; font-size: 0.75rem; }
+    .why { margin: 0; font-size: 0.9rem; line-height: 1.5; }
+    .facts { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; }
+    .badge-ok { color: var(--ok); }
+    .badge-unknown { color: var(--warn); }
+    .limitation { margin: 0; padding: 8px; background: var(--paper-2); border: 1px solid var(--rule); font-size: 0.82rem; }
+    .links { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.82rem; }
+    .links a { color: var(--accent); }
+    .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+    .actions button {
+      border: 1px solid var(--rule); background: var(--paper-2); color: var(--ink); padding: 6px 8px; cursor: pointer;
+    }
+    .actions button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+    .composer { border-top: 1px solid var(--rule); padding: 12px; display: flex; gap: 8px; background: var(--paper-2); }
+    .composer input {
+      flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink);
+    }
+    .composer button {
+      border: 0; background: var(--ink); color: var(--paper); padding: 10px 14px; cursor: pointer; white-space: nowrap;
+    }
+    .map-pane { min-height: 0; }
+    .map-pane .map-head { padding: 12px 14px; border-bottom: 1px solid var(--rule); display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+    .map-pane .map-head .map-tools { display: flex; flex-wrap: wrap; gap: 6px; }
+    .map-pane .map-head button {
+      border: 1px solid var(--rule); background: var(--paper); color: var(--ink); padding: 4px 8px; cursor: pointer; font-size: 0.78rem;
+    }
+    #map { flex: 1; min-height: 0; background: var(--paper-2); }
+    .team {
+      display: none; border-top: 1px solid var(--rule); padding: 16px; background: var(--paper-2);
+    }
+    .team.open { display: block; }
+    .team h2 { margin: 0 0 8px; font-size: 1.1rem; }
+    .team-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px; }
+    .team label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--muted); }
+    .team input, .team select { padding: 8px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); }
+    pre {
+      margin: 0; padding: 12px; background: var(--paper); border: 1px solid var(--rule);
+      overflow: auto; font-size: 0.75rem; line-height: 1.4; white-space: pre-wrap;
+    }
+    .drawer-btn { display: none; }
+    @media (max-width: 900px) {
+      .shell { flex-direction: column; }
+      .gutter { display: none; }
+      .history-col { display: none; width: auto; flex: none; }
+      .history-col.open { display: flex; border-right: 0; border-bottom: 1px solid var(--rule); }
+      .drawer-btn { display: inline-flex; }
+      .stage, .map-pane { width: auto; flex: 1 1 auto; min-width: 0; }
+      .map-pane { min-height: 380px; }
+      .cards { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="app-bar">
+      <div class="brand">
+        <h1>VibeRoute</h1>
+        <p>ค้นที่เที่ยวภาคเหนือตามความรู้สึก จากข้อมูล ททท. เท่านั้น</p>
+      </div>
+      <div class="assistant" id="assistant" data-level="ready" data-component="AssistantBar">
+        <strong id="assistant-label">ผู้ช่วยพร้อม</strong>
+        <span id="assistant-detail">ค้นหาที่เที่ยวจากข้อมูล ททท. ได้ตามปกติ</span>
+      </div>
+      <div class="bar-actions">
+        <button type="button" class="drawer-btn" id="btn-history">ประวัติ</button>
+        <button type="button" id="btn-new">แชทใหม่</button>
+        <button type="button" id="btn-team" aria-pressed="false">สำหรับทีมงาน</button>
+      </div>
+    </header>
+
+    <div class="shell">
+      <div class="history-col" id="history-col">
+        <aside class="history" data-component="ChatHistory">
+          <h2>ประวัติ</h2>
+          <ul class="history-list" id="history-list"></ul>
+        </aside>
+        <div class="filters">
+          <h2>ตัวกรอง</h2>
+          <label>ภาค
+            <select id="filter-region">
+              <option value="ภาคเหนือ" selected>ภาคเหนือ</option>
+              <option value="ภาคกลาง" disabled>ภาคกลาง — ยังไม่ ingest</option>
+              <option value="ภาคตะวันออกเฉียงเหนือ" disabled>ภาคตะวันออกเฉียงเหนือ — ยังไม่ ingest</option>
+              <option value="ภาคใต้" disabled>ภาคใต้ — ยังไม่ ingest</option>
+              <option value="ภาคตะวันออก" disabled>ภาคตะวันออก — ยังไม่ ingest</option>
+            </select>
+          </label>
+          <label>จังหวัด
+            <select id="filter-province"></select>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="prefer-secondary" checked />
+            <span id="toggle-copy">
+              <strong>เน้นชุมชนและจังหวัดรอง</strong><br />
+              ปิดแล้วจะเรียงตามความตรงมู้ด รวมเมืองหลัก
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <div class="gutter" id="gutter-history" role="separator" aria-orientation="vertical" aria-label="ลากปรับความกว้างประวัติ" tabindex="0"></div>
+
+      <section class="stage">
+        <div class="feed" id="feed">
+          <div class="welcome" id="welcome">
+            <h2>ตัวอย่างผลค้น (mock)</h2>
+            <p>เปิดมาก็มี 6 การ์ดจากฐาน ททท. แล้ว สลับชิปด้านล่างเพื่อดูเคสเดโม คน React ใช้จอนี้เป็น ref ไม่ต้องเดาเลย์เอาต์</p>
+            <div class="chips" data-component="DemoChips">
+              <button type="button" data-q="อยากไปที่เงียบๆ สโลว์ไลฟ์ หลีกหนีความวุ่นวาย">สโลว์ไลฟ์ เงียบ</button>
+              <button type="button" data-q="พาเด็กเที่ยวชุมชน ไม่ใช่วัดดังในเชียงใหม่">ชุมชน ไม่ใช่วัดดังเชียงใหม่</button>
+              <button type="button" data-q="เมืองเก่าอุทัยธานี ค่าเข้าชม">ไม่มีค่าเข้าชมในฐาน</button>
+              <button type="button" data-q="คุ้มเจ้าบุรีรัตน์ ค่าเข้าชม">มีค่าเข้าชม 60 บาท</button>
+              <button type="button" data-q="ทะเลภูเก็ต">ผลว่าง (นอกภาค)</button>
+            </div>
+          </div>
+          <p class="intro" id="intro" hidden></p>
+          <p class="meta" id="result-meta" hidden></p>
+          <div class="cards" id="cards" data-component="PlaceCard"></div>
+        </div>
+        <form class="composer" id="search-form" data-component="VibeComposer">
+          <input id="vibe-input" name="query" required autocomplete="off" placeholder="เช่น อยากไปที่เงียบๆ สโลว์ไลฟ์ หลีกหนีความวุ่นวาย" />
+          <button type="submit">ค้นหา</button>
+        </form>
+      </section>
+
+      <div class="gutter" id="gutter-map" role="separator" aria-orientation="vertical" aria-label="ลากปรับความกว้างแผนที่" tabindex="0"></div>
+
+      <aside class="map-pane" data-component="PlaceMap">
+        <div class="map-head">
+          <div>
+            <h2>แผนที่</h2>
+            <p class="meta" id="map-meta">ลากเส้นแบ่งซ้ายเพื่อขยายแผนที่</p>
+          </div>
+          <div class="map-tools">
+            <button type="button" id="btn-map-wide">ขยายแผนที่</button>
+            <button type="button" id="btn-layout-reset">คืนค่าเลย์เอาต์</button>
+          </div>
+        </div>
+        <div id="map"></div>
+      </aside>
+    </div>
+
+    <section class="team" id="team" data-component="TeamPanel">
+      <h2>สำหรับทีมงาน</h2>
+      <p class="meta">จอหลักห้ามโชว์ชื่อโมเดล HTTP หรือคะแนนเวกเตอร์ ค่าด้านล่างเป็น mock ให้คน React เห็นสัญญา</p>
+      <div class="team-grid">
+        <label>API base ตอนรัน
+          <input id="api-base" value="http://localhost:8000" />
+        </label>
+        <label>จำลองสถานะผู้ช่วย
+          <select id="sim-assistant">
+            <option value="ready">ready — ผู้ช่วยพร้อม</option>
+            <option value="fallback">fallback — กำลังใช้ผู้ช่วยสำรอง</option>
+            <option value="off">off — ผู้ช่วยยังไม่พร้อม</option>
+          </select>
+        </label>
+        <label class="toggle"><input type="checkbox" id="show-scores" /> โชว์ score_vector / score_ranked บนการ์ด</label>
+      </div>
+      <p class="meta">คำขอล่าสุด (รูปที่ frontend ต้องยิง)</p>
+      <pre id="last-request">ยังไม่มีการค้น</pre>
+      <p class="meta">response ล่าสุด</p>
+      <pre id="last-response">ยังไม่มี response</pre>
+    </section>
+  </div>
+
+  <input id="file-input" type="file" accept=".jpg,.jpeg,.png,.webp" hidden />
+
+  <script>
+    /* React split: AssistantBar, ChatHistory, Filters, VibeComposer, PlaceCard, PlaceMap, TeamPanel
+     * Mock below mirrors contracts/openapi.yaml. Swap mockSearch() for fetch(API + '/v1/search').
+     */
+    const SESSION_KEY = "viberoute_session_id";
+    const API_KEY = "viberoute_api_base";
+    const CHIANG_MAI = "เชียงใหม่";
+
+    const PROVINCES = [
+      "เชียงใหม่", "เชียงราย", "แม่ฮ่องสอน", "น่าน", "ลำปาง", "ตาก", "แพร่",
+      "เพชรบูรณ์", "ลำพูน", "พิษณุโลก", "พะเยา", "อุตรดิตถ์", "อุทัยธานี",
+      "พิจิตร", "นครสวรรค์", "สุโขทัย", "กำแพงเพชร"
+    ];
+
+    const ASSISTANT = {
+      ready: { level: "ready", label: "ผู้ช่วยพร้อม", detail: "ค้นหาที่เที่ยวจากข้อมูล ททท. ได้ตามปกติ" },
+      fallback: { level: "fallback", label: "กำลังใช้ผู้ช่วยสำรอง", detail: "ผู้ช่วยหลักไม่ว่างในตอนนี้ ระบบใช้ผู้ช่วยสำรองให้อัตโนมัติ ข้อมูลที่เที่ยวยังมาจากฐาน ททท. เหมือนเดิม" },
+      off: { level: "off", label: "ผู้ช่วยยังไม่พร้อม", detail: "ผู้ช่วยอธิบายมู้ดไม่ได้ชั่วคราว แต่รายการที่เที่ยว ค่าเข้าชม และเวลาเปิดปิดด้านล่างยังเป็นข้อมูลจริงจากฐาน ไม่ได้เดา" }
+    };
+
+    const PLACES = [
+      {
+        att_id: "20211115145426731761",
+        name_th: "สะพานบุญโขกู้โส่",
+        province: "แม่ฮ่องสอน",
+        district: "ปาย",
+        type_label: "วิถีชีวิตความเป็นอยู่ (ชุมชน)",
+        why: "สะพานบุญโขกู้โส่ที่แม่ฮ่องสอน เป็นวิถีชีวิตความเป็นอยู่ของชุมชนชาวไต เชื่อมหมู่บ้านแพมบกกับวัดห้วยคายคีรี ตามข้อมูล ททท.",
+        score_vector: 0.79,
+        score_ranked: 0.981,
+        fee: { status: "confirmed", label: "ฟรี (ตามฐาน TAT)", text: "0" },
+        hours: { status: "confirmed", label: "ทุกวัน 06.00 - 18.00 น.", text: "ทุกวัน 06.00 - 18.00 น." },
+        tel: "088 629 8867",
+        website: null,
+        facebook: null,
+        limitation: null,
+        lat: 19.3225079,
+        lng: 98.3931658,
+        images: []
+      },
+      {
+        att_id: "20250620144750001",
+        name_th: "เวียงภูเพียงแช่แห้ง",
+        province: "น่าน",
+        district: "ภูเพียง",
+        type_label: "ชุมชนโบราณ/โบราณสถาน/โบราณวัตถุ",
+        why: "เวียงภูเพียงแช่แห้งเป็นเมืองโบราณสำคัญของน่าน ฝั่งตะวันออกของแม่น้ำน่าน ตรงข้ามตัวเมือง ตามข้อมูล ททท.",
+        score_vector: 0.77,
+        score_ranked: 0.956,
+        fee: { status: "unknown", label: "ยังไม่มีข้อมูลค่าเข้าชมในระบบ", text: null },
+        hours: { status: "confirmed", label: "ทุกวัน เวลา 06:00 – 18:00 น.", text: "ทุกวัน เวลา 06:00 – 18:00 น." },
+        tel: "054 601146",
+        website: null,
+        facebook: "https://www.facebook.com/watphrathatchaehaeng",
+        limitation: null,
+        lat: 18.7597315,
+        lng: 100.7898101,
+        images: []
+      },
+      {
+        att_id: "20250620152816001",
+        name_th: "เมืองเก่าอุทัยธานี",
+        province: "อุทัยธานี",
+        district: "เมืองอุทัยธานี",
+        type_label: "ชุมชนโบราณ/โบราณสถาน/โบราณวัตถุ",
+        why: "ย่านชุมชนเก่าแก่ริมแม่น้ำสะแกกรัง ยังคงวิถีเดิม เหมาะกับสายเงียบที่ไม่ใช่เมืองหลัก ตามข้อมูล ททท.",
+        score_vector: 0.74,
+        score_ranked: 0.919,
+        fee: { status: "unknown", label: "ยังไม่มีข้อมูลค่าเข้าชมในระบบ", text: null },
+        hours: { status: "confirmed", label: "เปิดทุกวัน", text: "เปิดทุกวัน" },
+        tel: "056 511 222",
+        website: "http://www.uthaithani.go.th/",
+        facebook: null,
+        limitation: "การประชาสัมพันธ์ที่จำกัด ข้อมูลและการโปรโมทเมืองเก่าอุทัยธานียังไม่แพร่หลายเท่ากับแหล่งท่องเที่ยวอื่น ๆ ในประเทศไทย ทำให้ขาดการรับรู้ในวงกว้าง โดยเฉพาะในกลุ่มนักท่องเที่ยวต่างชาติ",
+        lat: 15.4088251,
+        lng: 99.8270594,
+        images: []
+      },
+      {
+        att_id: "20240319094228001",
+        name_th: "โค้ง I LOVE U",
+        province: "น่าน",
+        district: "ปัว",
+        type_label: "จุดชมวิว",
+        why: "จุดชมวิวกลางหุบเขาบนถนนโค้งรูปตัว U ที่น่าน ตามข้อมูล ททท.",
+        score_vector: 0.76,
+        score_ranked: 0.821,
+        fee: { status: "confirmed", label: "ฟรี (ตามฐาน TAT)", text: "0" },
+        hours: { status: "confirmed", label: "เปิดตลอด", text: "เปิดตลอด" },
+        tel: null,
+        website: null,
+        facebook: null,
+        limitation: null,
+        lat: 18.9766534,
+        lng: 100.9916676,
+        images: []
+      },
+      {
+        att_id: "20250606144646001",
+        name_th: "ศูนย์สถาปัตยกรรมล้านนา คุ้มเจ้าบุรีรัตน์ มหาอินทร์",
+        province: "เชียงใหม่",
+        district: "เมืองเชียงใหม่",
+        type_label: "ศูนย์การเรียนรู้ฯ (เกี่ยวกับกิจกรรม ผลิตภัณฑ์ และภูมิปัญญาในท้องถิ่น)",
+        why: "เรือนไม้ที่เป็นศูนย์สถาปัตยกรรมล้านนา ในตัวเมืองเชียงใหม่ ตามข้อมูล ททท.",
+        score_vector: 0.84,
+        score_ranked: 0.694,
+        fee: { status: "confirmed", label: "ผู้ใหญ่ 60 บาท · เด็ก 10 บาท (ตามฐาน TAT)", text: "60" },
+        hours: { status: "confirmed", label: "วันอังคาร - วันอาทิตย์ เวลา 09:00 - 12:00 น. และ 13:00 - 16:00 น. (ปิดวันจันทร์)", text: "วันอังคาร - วันอาทิตย์ เวลา 09:00 - 12:00 น. และ 13:00 - 16:00 น. (ปิดวันจันทร์)" },
+        tel: "0 5327 7855",
+        website: "http://www.lanna-arch.net",
+        facebook: "https://www.facebook.com/SunySthapatykrrmLanNa",
+        limitation: "ขาดการรับรู้ในวงกว้างของนักท่องเที่ยวทั่วไป นักท่องเที่ยวจำนวนมากไม่รู้จัก หรือยังไม่เข้าใจว่าเป็นสถานที่ท่องเที่ยวหรือศูนย์การเรียนรู้",
+        lat: 18.7879488,
+        lng: 98.988302,
+        images: []
+      },
+      {
+        att_id: "20250606101017001",
+        name_th: "ศูนย์การค้าเซ็นทรัล เชียงใหม่",
+        province: "เชียงใหม่",
+        district: "เมืองเชียงใหม่",
+        type_label: "ห้างสรรพสินค้า/แหล่งช้อปปิ้ง/ตลาดสด/ตลาดนัด/ถนนคนเดิน",
+        why: "ศูนย์การค้าในเชียงใหม่ ตามข้อมูล ททท. — โหมดเน้นจังหวัดรองต้องไม่ดันใบนี้ขึ้นก่อน",
+        score_vector: 0.88,
+        score_ranked: 0.538,
+        fee: { status: "unknown", label: "ยังไม่มีข้อมูลค่าเข้าชมในระบบ", text: null },
+        hours: { status: "unknown", label: "ยังไม่มีข้อมูลเวลาเปิดปิดในระบบ", text: null },
+        tel: "0 5399 8999",
+        website: "https://www.centralpattana.co.th/",
+        facebook: "https://www.facebook.com/CentralChiangmai",
+        limitation: "การแข่งขันสูงจากศูนย์การค้าอื่นในจังหวัด",
+        lat: 18.8062111,
+        lng: 99.0180226,
+        images: []
+      }
+    ];
+
+    let sessionId = localStorage.getItem(SESSION_KEY);
+    if (!sessionId) {
+      sessionId = crypto.randomUUID();
+      localStorage.setItem(SESSION_KEY, sessionId);
+    }
+
+    let chats = [];
+    let activeChatId = null;
+    let lastResponse = null;
+    let uploadAttId = null;
+    let map, markers = [];
+
+    function clonePlaces() {
+      return PLACES.map((p) => ({ ...p, images: [...p.images], fee: { ...p.fee }, hours: { ...p.hours } }));
+    }
+
+    function mapPoints(places) {
+      return places
+        .filter((p) => typeof p.lat === "number" && typeof p.lng === "number")
+        .map((p) => ({ att_id: p.att_id, name_th: p.name_th, lat: p.lat, lng: p.lng }));
+    }
+
+    function mockSearch({ query, region, province, prefer_secondary, chat_id }) {
+      const assistantKey = document.getElementById("sim-assistant").value;
+      if (/ทะเล|ภูเก็ต|พัทยา/i.test(query)) {
+        return {
+          chat_id: chat_id || crypto.randomUUID(),
+          message_id: crypto.randomUUID(),
+          intro: "ไม่พบที่เที่ยวในภาคเหนือที่ตรงมู้ดนี้จากฐาน ททท.",
+          assistant: ASSISTANT[assistantKey],
+          prefer_secondary,
+          secondary_count: 0,
+          places: [],
+          map_points: []
+        };
+      }
+
+      let rows = clonePlaces();
+      if (province) rows = rows.filter((p) => p.province === province);
+      const key = prefer_secondary ? "score_ranked" : "score_vector";
+      rows.sort((a, b) => b[key] - a[key]);
+      const places = rows.slice(0, 6);
+      const secondary_count = places.filter((p) => p.province !== CHIANG_MAI).length;
+      const intro = prefer_secondary
+        ? `ผลการค้นหาตามมู้ด «${query}» จากฐาน ททท. ภาคเหนือ เน้นชุมชนและจังหวัดรอง`
+        : `ผลการค้นหาตามมู้ด «${query}» จากฐาน ททท. ภาคเหนือ เรียงตามความตรงมู้ด`;
+
+      return {
+        chat_id: chat_id || crypto.randomUUID(),
+        message_id: crypto.randomUUID(),
+        intro,
+        assistant: ASSISTANT[assistantKey],
+        prefer_secondary,
+        secondary_count,
+        places,
+        map_points: mapPoints(places)
+      };
+    }
+
+    function setAssistant(status) {
+      const el = document.getElementById("assistant");
+      el.dataset.level = status.level;
+      document.getElementById("assistant-label").textContent = status.label;
+      document.getElementById("assistant-detail").textContent = status.detail;
+    }
+
+    function coverImage(place) {
+      return (place.images || []).find((img) => img.is_cover) || (place.images || [])[0] || null;
+    }
+
+    function renderCards(places, messageId) {
+      const showScores = document.getElementById("show-scores").checked;
+      const root = document.getElementById("cards");
+      root.innerHTML = "";
+      places.forEach((place) => {
+        const cover = coverImage(place);
+        const card = document.createElement("article");
+        card.className = "card";
+        const unknownFee = place.fee.status !== "confirmed";
+        const unknownHours = place.hours.status !== "confirmed";
+        const callLine = (unknownFee || unknownHours) && place.tel
+          ? `กรุณาติดต่อ ${place.tel} ก่อนเดินทาง`
+          : "";
+        const rank = places.indexOf(place) + 1;
+        const secondary = place.province !== CHIANG_MAI;
+        card.innerHTML = `
+          <div class="cover">
+            ${cover ? `<img src="${cover.url}" alt="" />` : `
+              <span class="cover-num">${rank}</span>
+              <span class="cover-copy">
+                <strong>${place.province}${secondary ? " · จังหวัดรอง" : ""}</strong>
+                <span>ยังไม่มีรูปในระบบ — อัปโหลดได้จากปุ่มด้านล่าง</span>
+              </span>
+            `}
+          </div>
+          <div class="card-body">
+            <h3>${place.name_th}</h3>
+            <p class="place-meta">${place.province}${place.district ? " · " + place.district : ""}</p>
+            ${place.type_label ? `<span class="type">${place.type_label}</span>` : ""}
+            <p class="why">${place.why}</p>
+            <div class="facts">
+              <div class="${place.fee.status === "confirmed" ? "badge-ok" : "badge-unknown"}">ค่าเข้าชม · ${place.fee.label}</div>
+              <div class="${place.hours.status === "confirmed" ? "badge-ok" : "badge-unknown"}">เวลาเปิดปิด · ${place.hours.label}</div>
+              ${place.tel ? `<div>โทร ${place.tel}</div>` : ""}
+              ${callLine ? `<div class="badge-unknown">${callLine}</div>` : ""}
+            </div>
+            ${place.limitation ? `<p class="limitation">${place.limitation}</p>` : ""}
+            <div class="links">
+              ${place.website ? `<a href="${place.website}" target="_blank" rel="noreferrer">เว็บไซต์</a>` : ""}
+              ${place.facebook ? `<a href="${place.facebook}" target="_blank" rel="noreferrer">Facebook</a>` : ""}
+            </div>
+            ${showScores ? `<p class="meta">score_vector ${place.score_vector} · score_ranked ${place.score_ranked}</p>` : ""}
+            <div class="actions">
+              <button type="button" data-vote="1" aria-pressed="${place.rating === 1}">ตรง</button>
+              <button type="button" data-vote="-1" aria-pressed="${place.rating === -1}">ไม่ตรง</button>
+              <button type="button" data-upload>เพิ่มรูป</button>
+              ${cover ? `<button type="button" data-fav="${cover.id}" aria-pressed="${cover.viewer_faved || false}">ถูกใจรูปปก</button>` : ""}
+            </div>
+          </div>
+        `;
+        card.querySelectorAll("[data-vote]").forEach((btn) => {
+          btn.addEventListener("click", () => vote(messageId, place.att_id, Number(btn.dataset.vote)));
+        });
+        const uploadBtn = card.querySelector("[data-upload]");
+        uploadBtn.addEventListener("click", () => {
+          uploadAttId = place.att_id;
+          document.getElementById("file-input").click();
+        });
+        const favBtn = card.querySelector("[data-fav]");
+        if (favBtn) favBtn.addEventListener("click", () => favImage(place.att_id, favBtn.dataset.fav));
+        root.appendChild(card);
+      });
+    }
+
+    function renderMap(points) {
+      document.getElementById("map-meta").textContent = points.length
+        ? `หมุด ${points.length} จุด · ลากเส้นแบ่งเพื่อขยายแผนที่`
+        : "ยังไม่มีหมุด — ลากเส้นแบ่งเพื่อขยายแผนที่";
+      markers.forEach((m) => map.removeLayer(m));
+      markers = [];
+      const bounds = [];
+      points.forEach((pt, i) => {
+        const icon = L.divIcon({
+          className: "",
+          html: `<div class="pin">${i + 1}</div>`,
+          iconSize: [26, 26],
+          iconAnchor: [13, 13]
+        });
+        const marker = L.marker([pt.lat, pt.lng], { icon }).addTo(map);
+        marker.bindPopup(`${i + 1}. ${pt.name_th}`);
+        markers.push(marker);
+        bounds.push([pt.lat, pt.lng]);
+      });
+      if (bounds.length) map.fitBounds(bounds, { padding: [24, 24] });
+      else map.setView([18.8, 99.0], 6);
+    }
+
+    function renderHistory() {
+      const list = document.getElementById("history-list");
+      list.innerHTML = "";
+      chats.forEach((chat) => {
+        const li = document.createElement("li");
+        const btn = document.createElement("button");
+        btn.type = "button";
+        if (chat.id === activeChatId) btn.setAttribute("aria-current", "true");
+        const last = chat.messages[chat.messages.length - 1];
+        btn.innerHTML = `<span>${last.query}</span><small>${last.places.length} การ์ด</small>`;
+        btn.addEventListener("click", () => loadChat(chat.id));
+        li.appendChild(btn);
+        list.appendChild(li);
+      });
+    }
+
+    function seedHistory() {
+      const samples = [
+        "พาเด็กเที่ยวชุมชน ไม่ใช่วัดดังในเชียงใหม่",
+        "เมืองเก่าอุทัยธานี ค่าเข้าชม",
+        "ทะเลภูเก็ต"
+      ];
+      samples.forEach((query) => {
+        const res = mockSearch({
+          query,
+          region: "ภาคเหนือ",
+          province: null,
+          prefer_secondary: true,
+          chat_id: crypto.randomUUID()
+        });
+        chats.push({
+          id: res.chat_id,
+          messages: [{ id: res.message_id, query, ...res }]
+        });
+      });
+    }
+
+    function paintResponse(res, query) {
+      lastResponse = res;
+      setAssistant(res.assistant);
+      const intro = document.getElementById("intro");
+      intro.hidden = false;
+      intro.textContent = res.intro;
+      const meta = document.getElementById("result-meta");
+      meta.hidden = false;
+      meta.textContent = res.places.length
+        ? `ใน ${res.places.length} แห่งนี้ เป็นจังหวัดอื่นนอกเชียงใหม่ ${res.secondary_count} แห่ง`
+        : "ไม่มีการ์ดจากฐาน";
+      renderCards(res.places, res.message_id);
+      renderMap(res.map_points);
+      document.getElementById("last-request").textContent = JSON.stringify({
+        method: "POST",
+        path: "/v1/search",
+        headers: { "X-Session-Id": sessionId },
+        body: {
+          query,
+          region: document.getElementById("filter-region").value,
+          province: document.getElementById("filter-province").value || null,
+          prefer_secondary: document.getElementById("prefer-secondary").checked,
+          chat_id: activeChatId
+        }
+      }, null, 2);
+      document.getElementById("last-response").textContent = JSON.stringify(res, null, 2);
+    }
+
+    function runSearch(query) {
+      const prefer = document.getElementById("prefer-secondary").checked;
+      const province = document.getElementById("filter-province").value || null;
+      setAssistant({ level: "ready", label: "ผู้ช่วยพร้อม", detail: "กำลังหาที่เที่ยวที่ตรงความรู้สึกของคุณ" });
+      const res = mockSearch({
+        query,
+        region: "ภาคเหนือ",
+        province,
+        prefer_secondary: prefer,
+        chat_id: activeChatId
+      });
+      let chat = chats.find((c) => c.id === res.chat_id);
+      if (!chat) {
+        chat = { id: res.chat_id, messages: [] };
+        chats.unshift(chat);
+      }
+      chat.messages.push({ id: res.message_id, query, ...res });
+      activeChatId = res.chat_id;
+      paintResponse(res, query);
+      renderHistory();
+    }
+
+    function loadChat(id) {
+      const chat = chats.find((c) => c.id === id);
+      if (!chat) return;
+      activeChatId = id;
+      const last = chat.messages[chat.messages.length - 1];
+      paintResponse(last, last.query);
+      document.getElementById("vibe-input").value = last.query;
+      document.getElementById("prefer-secondary").checked = last.prefer_secondary;
+      renderHistory();
+    }
+
+    function vote(messageId, attId, rating) {
+      if (!lastResponse) return;
+      const place = lastResponse.places.find((p) => p.att_id === attId);
+      if (!place) return;
+      place.rating = place.rating === rating ? 0 : rating;
+      document.getElementById("last-request").textContent = JSON.stringify({
+        method: "POST",
+        path: "/v1/feedback",
+        headers: { "X-Session-Id": sessionId },
+        body: { message_id: messageId, att_id: attId, rating: place.rating || rating }
+      }, null, 2);
+      renderCards(lastResponse.places, messageId);
+    }
+
+    function favImage(attId, imageId) {
+      if (!lastResponse) return;
+      const place = lastResponse.places.find((p) => p.att_id === attId);
+      const img = place.images.find((i) => i.id === imageId);
+      img.viewer_faved = !img.viewer_faved;
+      img.fav_count += img.viewer_faved ? 1 : -1;
+      document.getElementById("last-request").textContent = JSON.stringify({
+        method: "POST",
+        path: `/v1/images/${imageId}/favorite`,
+        headers: { "X-Session-Id": sessionId }
+      }, null, 2);
+      renderCards(lastResponse.places, lastResponse.message_id);
+    }
+
+    function fillProvinces() {
+      const sel = document.getElementById("filter-province");
+      sel.innerHTML = `<option value="">ทุกจังหวัดในภาคเหนือ</option>` +
+        PROVINCES.map((name) => `<option value="${name}">${name}</option>`).join("");
+    }
+
+    function bindColumnResize() {
+      const shell = document.querySelector(".shell");
+      const LAYOUT_KEY = "viberoute_layout";
+      const MIN_HISTORY = 180;
+      const MAX_HISTORY = 360;
+      const MIN_MAP = 280;
+      const MIN_STAGE = 320;
+
+      function shellWidth() {
+        return shell.getBoundingClientRect().width;
+      }
+
+      function applyLayout(historyW, mapW) {
+        const total = shellWidth();
+        const gutters = 20;
+        const maxMap = Math.max(MIN_MAP, total - historyW - MIN_STAGE - gutters);
+        historyW = Math.min(MAX_HISTORY, Math.max(MIN_HISTORY, historyW));
+        mapW = Math.min(maxMap, Math.max(MIN_MAP, mapW));
+        shell.style.setProperty("--history-w", `${historyW}px`);
+        shell.style.setProperty("--map-w", `${mapW}px`);
+        localStorage.setItem(LAYOUT_KEY, JSON.stringify({ historyW, mapW }));
+        if (map) setTimeout(() => map.invalidateSize(), 0);
+        return { historyW, mapW };
+      }
+
+      function current() {
+        const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "null");
+        if (saved) return applyLayout(saved.historyW, saved.mapW);
+        return applyLayout(220, Math.round(shellWidth() * 0.44));
+      }
+
+      function bind(el, kind) {
+        const startDrag = (event) => {
+          if (window.matchMedia("(max-width: 900px)").matches) return;
+          event.preventDefault();
+          document.body.classList.add("dragging");
+          const startX = event.clientX;
+          const startHistory = document.getElementById("history-col").getBoundingClientRect().width;
+          const startMap = document.querySelector(".map-pane").getBoundingClientRect().width;
+          const move = (ev) => {
+            const dx = ev.clientX - startX;
+            if (kind === "history") applyLayout(startHistory + dx, startMap);
+            else applyLayout(startHistory, startMap - dx);
+          };
+          const stop = () => {
+            document.body.classList.remove("dragging");
+            window.removeEventListener("pointermove", move);
+            window.removeEventListener("pointerup", stop);
+          };
+          window.addEventListener("pointermove", move);
+          window.addEventListener("pointerup", stop);
+        };
+        el.addEventListener("pointerdown", startDrag);
+        el.addEventListener("dblclick", () => current());
+        el.addEventListener("keydown", (ev) => {
+          const step = ev.shiftKey ? 48 : 24;
+          const hist = document.getElementById("history-col").getBoundingClientRect().width;
+          const mapW = document.querySelector(".map-pane").getBoundingClientRect().width;
+          if (ev.key === "ArrowLeft") {
+            ev.preventDefault();
+            kind === "map" ? applyLayout(hist, mapW + step) : applyLayout(hist - step, mapW);
+          }
+          if (ev.key === "ArrowRight") {
+            ev.preventDefault();
+            kind === "map" ? applyLayout(hist, mapW - step) : applyLayout(hist + step, mapW);
+          }
+        });
+      }
+
+      bind(document.getElementById("gutter-history"), "history");
+      bind(document.getElementById("gutter-map"), "map");
+      document.getElementById("btn-map-wide").addEventListener("click", () => {
+        applyLayout(200, Math.round(shellWidth() * 0.55));
+      });
+      document.getElementById("btn-layout-reset").addEventListener("click", () => {
+        localStorage.removeItem(LAYOUT_KEY);
+        current();
+      });
+      window.addEventListener("resize", () => current());
+      current();
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      fillProvinces();
+      setAssistant(ASSISTANT.ready);
+      const savedBase = localStorage.getItem(API_KEY);
+      if (savedBase) document.getElementById("api-base").value = savedBase;
+      map = L.map("map").setView([18.8, 99.0], 6);
+      L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+        attribution: "Tiles &copy; Esri"
+      }).addTo(map);
+      bindColumnResize();
+
+      document.getElementById("search-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        runSearch(document.getElementById("vibe-input").value.trim());
+      });
+      document.querySelectorAll(".chips button").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document.getElementById("vibe-input").value = btn.dataset.q;
+          runSearch(btn.dataset.q);
+        });
+      });
+      document.getElementById("prefer-secondary").addEventListener("change", () => {
+        const q = document.getElementById("vibe-input").value.trim();
+        if (q && lastResponse) runSearch(q);
+      });
+      document.getElementById("btn-new").addEventListener("click", () => {
+        activeChatId = null;
+        const q = "อยากไปที่เงียบๆ สโลว์ไลฟ์ หลีกหนีความวุ่นวาย";
+        document.getElementById("vibe-input").value = q;
+        runSearch(q);
+      });
+      document.getElementById("btn-team").addEventListener("click", (e) => {
+        const open = document.getElementById("team").classList.toggle("open");
+        e.currentTarget.setAttribute("aria-pressed", String(open));
+        setTimeout(() => map.invalidateSize(), 200);
+      });
+      document.getElementById("btn-history").addEventListener("click", () => {
+        document.getElementById("history-col").classList.toggle("open");
+      });
+      document.getElementById("api-base").addEventListener("change", (e) => {
+        localStorage.setItem(API_KEY, e.target.value);
+      });
+      document.getElementById("sim-assistant").addEventListener("change", (e) => {
+        setAssistant(ASSISTANT[e.target.value]);
+        if (lastResponse) {
+          lastResponse.assistant = ASSISTANT[e.target.value];
+          paintResponse(lastResponse, document.getElementById("vibe-input").value);
+        }
+      });
+      document.getElementById("show-scores").addEventListener("change", () => {
+        if (lastResponse) renderCards(lastResponse.places, lastResponse.message_id);
+      });
+      document.getElementById("file-input").addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        e.target.value = "";
+        if (!file || !lastResponse || !uploadAttId) return;
+        const okType = /image\/(jpeg|png|webp)/.test(file.type);
+        if (!okType || file.size > 5 * 1024 * 1024) {
+          alert("รับเฉพาะ jpg png webp ขนาดไม่เกิน 5MB");
+          return;
+        }
+        const place = lastResponse.places.find((p) => p.att_id === uploadAttId);
+        const url = URL.createObjectURL(file);
+        place.images.forEach((img) => { img.is_cover = false; });
+        place.images.unshift({
+          id: crypto.randomUUID(),
+          att_id: place.att_id,
+          url,
+          fav_count: 0,
+          is_cover: true,
+          viewer_faved: false,
+          moderation_status: "accepted"
+        });
+        document.getElementById("last-request").textContent = JSON.stringify({
+          method: "POST",
+          path: `/v1/places/${place.att_id}/images`,
+          headers: { "X-Session-Id": sessionId },
+          body: "multipart/form-data file"
+        }, null, 2);
+        renderCards(lastResponse.places, lastResponse.message_id);
+      });
+
+      seedHistory();
+      const starter = "อยากไปที่เงียบๆ สโลว์ไลฟ์ หลีกหนีความวุ่นวาย";
+      document.getElementById("vibe-input").value = starter;
+      runSearch(starter);
+      setTimeout(() => map.invalidateSize(), 250);
+    });
+  </script>
+</body>
+</html>

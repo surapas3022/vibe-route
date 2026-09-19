@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="th" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VibeRoute - Thailand AI Travel Discovery POC (North Focus)</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Google Fonts: Kanit & Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Leaflet CSS & JS for Interactive Map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0fdf4',
+                            100: '#dcfce7',
+                            500: '#10b981',
+                            600: '#059669',
+                            700: '#047857',
+                            800: '#065f46',
+                            900: '#064e3b',
+                            accent: '#f59e0b',
+                        },
+                        darkbg: {
+                            900: '#0a0d14',
+                            800: '#121824',
+                            700: '#1a2234',
+                            600: '#26334d',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'Kanit', 'sans-serif'],
+                        kanit: ['Kanit', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', 'Kanit', sans-serif;
+            background-color: #0a0d14;
+            color: #f3f4f6;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #121824;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #26334d;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #10b981;
+        }
+        .pulse-emerald {
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+        }
+        .pulse-amber {
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.4);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col bg-darkbg-900 text-gray-100 antialiased overflow-x-hidden">
+
+    <!-- TOP GLOBAL HEADER -->
+    <header class="bg-darkbg-800 border-b border-darkbg-600 sticky top-0 z-50 px-4 py-3 flex flex-wrap items-center justify-between shadow-xl">
+        <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center font-bold text-slate-900 text-xl shadow-lg">
+                <i class="fa-solid fa-compass"></i>
+            </div>
+            <div>
+                <div class="flex items-center space-x-2">
+                    <h1 class="text-xl font-bold font-kanit tracking-wide text-white">VibeRoute <span class="text-xs px-2 py-0.5 rounded-full bg-brand-900 border border-brand-500 text-brand-500 font-mono">POC North v1.0</span></h1>
+                </div>
+                <p class="text-xs text-gray-400 hidden sm:block">AI Vibe Discovery Engine • OpenAPI Contract Driven Architecture</p>
+            </div>
+        </div>
+
+        <!-- Mode Switcher & Metric Pills -->
+        <div class="flex items-center space-x-2 sm:space-x-4 mt-2 sm:mt-0">
+            <!-- Metrics pill -->
+            <div class="hidden md:flex items-center space-x-3 bg-darkbg-900 px-3 py-1.5 rounded-lg border border-darkbg-600 text-xs font-mono">
+                <span title="Filter Region"><i class="fa-solid fa-map-location-dot text-brand-500"></i> North: <strong class="text-emerald-400">2,077</strong></span>
+                <span class="text-gray-600">|</span>
+                <span title="Embed Dims"><i class="fa-solid fa-vector-square text-cyan-400"></i> Dims: <strong class="text-cyan-300">768</strong></span>
+                <span class="text-gray-600">|</span>
+                <span title="Max cards to LLM"><i class="fa-solid fa-layer-group text-amber-400"></i> Cards: <strong class="text-amber-300">6/12</strong></span>
+            </div>
+
+            <!-- View Mode Switcher -->
+            <div class="bg-darkbg-900 p-1 rounded-xl border border-darkbg-600 flex items-center text-xs font-medium">
+                <button id="btn-view-app" onclick="switchView('app')" class="px-3 py-1.5 rounded-lg bg-brand-600 text-white font-semibold transition-all flex items-center space-x-1.5 shadow-md">
+                    <i class="fa-solid fa-map-marked-alt"></i>
+                    <span>App Experience</span>
+                </button>
+                <button id="btn-view-arch" onclick="switchView('arch')" class="px-3 py-1.5 rounded-lg text-gray-400 hover:text-white transition-all flex items-center space-x-1.5">
+                    <i class="fa-solid fa-network-wired"></i>
+                    <span>Architecture & Contract</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN CONTAINER -->
+    <main class="flex-1 flex overflow-hidden relative">
+
+        <!-- ========================================================================= -->
+        <!-- VIEW 1: APP EXPERIENCE (FE UX + INTERACTIVE MAP + CHAT + CARDS) -->
+        <!-- ========================================================================= -->
+        <div id="view-app" class="flex-1 flex flex-col md:flex-row w-full overflow-hidden">
+            
+            <!-- LEFT SIDEBAR: History & Filters -->
+            <aside id="history-sidebar" class="w-full md:w-72 bg-darkbg-800 border-r border-darkbg-600 flex flex-col h-auto md:h-full transition-all duration-300 z-10">
+                <div class="p-3 border-b border-darkbg-600 flex justify-between items-center bg-darkbg-900/50">
+                    <span class="text-xs font-bold uppercase tracking-wider text-gray-400 flex items-center gap-2">
+                        <i class="fa-solid fa-clock-rotate-left text-brand-500"></i> Chat History
+                    </span>
+                    <button onclick="createNewChat()" class="text-xs bg-darkbg-700 hover:bg-brand-600 hover:text-white text-gray-300 px-2 py-1 rounded border border-darkbg-600 transition flex items-center gap-1">
+                        <i class="fa-solid fa-plus text-xs"></i> New Vibe
+                    </button>
+                </div>
+
+                <!-- Chat History List -->
+                <div id="chat-history-list" class="flex-1 overflow-y-auto p-2 space-y-1 max-h-48 md:max-h-full">
+                    <!-- Populated dynamically via GET /v1/chats -->
+                </div>
+
+                <!-- Global Filters Panel -->
+                <div class="p-3 border-t border-darkbg-600 bg-darkbg-900/80 space-y-3 text-xs">
+                    <div class="font-bold text-gray-300 flex items-center justify-between">
+                        <span><i class="fa-solid fa-filter text-amber-400 mr-1"></i> POC Scope Filters</span>
+                        <span class="text-[10px] text-gray-500">FastAPI Ingest</span>
+                    </div>
+
+                    <!-- Region Selector -->
+                    <div>
+                        <label class="block text-gray-400 mb-1">Region (ภูมิภาค):</label>
+                        <select id="filter-region" onchange="updateProvinces()" class="w-full bg-darkbg-700 border border-darkbg-600 rounded px-2 py-1.5 text-white focus:outline-none focus:border-brand-500">
+                            <option value="North" selected>ภาคเหนือ (North) - 2,077 Listings</option>
+                            <option value="Central" disabled>ภาคกลาง (Central) - [POC Locked]</option>
+                            <option value="South" disabled>ภาคใต้ (South) - [POC Locked]</option>
+                            <option value="Isan" disabled>ภาคอีสาน (Isan) - [POC Locked]</option>
+                        </select>
+                    </div>
+
+                    <!-- Province Filter -->
+                    <div>
+                        <label class="block text-gray-400 mb-1">Province (จังหวัด):</label>
+                        <select id="filter-province" class="w-full bg-darkbg-700 border border-darkbg-600 rounded px-2 py-1.5 text-white focus:outline-none focus:border-brand-500">
+                            <option value="ALL">ทุกจังหวัดในภาคเหนือ (All Northern)</option>
+                            <option value="Chiang Mai">เชียงใหม่ (Chiang Mai)</option>
+                            <option value="Chiang Rai">เชียงราย (Chiang Rai)</option>
+                            <option value="Mae Hong Son">แม่ฮ่องสอน (Mae Hong Son)</option>
+                            <option value="Nan">น่าน (Nan)</option>
+                            <option value="Lampang">ลำปาง (Lampang)</option>
+                            <option value="Lamphun">ลำพูน (Lamphun)</option>
+                            <option value="Phrae">แพร่ (Phrae)</option>
+                            <option value="Phayao">พะเยา (Phayao)</option>
+                        </select>
+                    </div>
+
+                    <!-- Secondary Places Toggle -->
+                    <div class="flex items-center justify-between pt-1">
+                        <span class="text-gray-300" title="Include hidden gem / secondary tourism cities">เมืองรอง (Secondary Places)</span>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="toggle-secondary" class="sr-only peer" checked>
+                            <div class="w-9 h-5 bg-darkbg-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600"></div>
+                        </label>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- CENTER / MAIN CONTENT: Vibe Chat & 6 Recommendation Cards -->
+            <section class="flex-1 flex flex-col h-full overflow-hidden bg-darkbg-900 border-r border-darkbg-600 relative">
+                
+                <!-- Active Vibe Bar & Status Banner -->
+                <div class="bg-darkbg-800/90 backdrop-blur border-b border-darkbg-600 p-3 flex items-center justify-between">
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span class="text-xs text-gray-300 font-mono">
+                            ACTIVE ENGINE: <strong class="text-brand-500" id="current-llm-label">NVIDIA Nemotron-3.5-30B</strong>
+                        </span>
+                    </div>
+                    <div id="llm-status-badge" class="text-[10px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 flex items-center gap-1">
+                        <i class="fa-solid fa-shield-halved"></i> 200 OK • Vector Retrieval Top-12 → LLM Rerank 6
+                    </div>
+                </div>
+
+                <!-- Cards & Chat Container Scroll Area -->
+                <div id="main-scroll-area" class="flex-1 overflow-y-auto p-4 space-y-6">
+                    
+                    <!-- Welcome Hero Card -->
+                    <div class="bg-gradient-to-br from-darkbg-800 via-darkbg-700 to-darkbg-800 rounded-2xl p-5 border border-darkbg-600 shadow-xl relative overflow-hidden">
+                        <div class="absolute -right-10 -bottom-10 opacity-10 text-emerald-400">
+                            <i class="fa-solid fa-mountain-sun text-9xl"></i>
+                        </div>
+                        <div class="relative z-10">
+                            <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-brand-900/60 text-brand-400 border border-brand-600/40 text-xs mb-3 font-semibold">
+                                <i class="fa-solid fa-sparkles"></i> TAT North Attraction Filter Active
+                            </div>
+                            <h2 class="text-xl md:text-2xl font-bold font-kanit text-white mb-2">
+                                ค้นหาที่เที่ยวตามอารมณ์และบรรยากาศ (Vibe Search)
+                            </h2>
+                            <p class="text-xs md:text-sm text-gray-300 leading-relaxed max-w-2xl">
+                                ค้นหาสถานที่ท่องเที่ยวในภาคเหนือ 2,077 แห่ง ด้วยระบบ Gemini Embedding (768 dims) + pgvector top-12 แล้วส่งให้ NVIDIA Nemotron สรุป Vibe สั้นๆ เพียง 6 การ์ดโดยไม่ผ่าน Raw TAT Dump
+                            </p>
+
+                            <!-- Example Vibe Chips -->
+                            <div class="mt-4 flex flex-wrap gap-2">
+                                <span class="text-xs text-gray-400 self-center">ลองค้นหา:</span>
+                                <button onclick="quickVibe('คาเฟ่วิวหมอก กาแฟดริป บรรยากาศเงียบสงบ จ.เชียงใหม่')" class="text-xs bg-darkbg-900/80 hover:bg-brand-600/30 hover:border-brand-500 border border-darkbg-600 text-emerald-300 px-2.5 py-1 rounded-lg transition">
+                                    ☕ คาเฟ่วิวหมอก จ.เชียงใหม่
+                                </button>
+                                <button onclick="quickVibe('วัดโบราณเงียบสงบ งานสถาปัตยกรรมล้านนาแท้ สายบุญ น่าน')" class="text-xs bg-darkbg-900/80 hover:bg-brand-600/30 hover:border-brand-500 border border-darkbg-600 text-amber-300 px-2.5 py-1 rounded-lg transition">
+                                    🛕 วัดโบราณล้านนา น่าน
+                                </button>
+                                <button onclick="quickVibe('จุดชมวิวดอยสูง อากาศหนาวเย็น ถ่ายรูปสวย ลำปาง')" class="text-xs bg-darkbg-900/80 hover:bg-brand-600/30 hover:border-brand-500 border border-darkbg-600 text-cyan-300 px-2.5 py-1 rounded-lg transition">
+                                    ⛰️ ดอยสูงอากาศหนาว ลำปาง
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI Explanation & Prompt Summary -->
+                    <div id="vibe-summary-box" class="hidden bg-darkbg-800 rounded-xl p-4 border border-brand-500/30 space-y-2">
+                        <div class="flex items-center justify-between text-xs border-b border-darkbg-600 pb-2">
+                            <span class="text-gray-400 font-mono flex items-center gap-1.5">
+                                <i class="fa-solid fa-robot text-brand-500"></i> AI Vibe Synthesis (LLM Card Feed)
+                            </span>
+                            <span class="text-emerald-400 font-mono text-[11px]" id="synthesis-latency">Latency: 284ms</span>
+                        </div>
+                        <p id="vibe-summary-text" class="text-sm text-gray-200 font-kanit leading-relaxed">
+                            <!-- Dynamic text from backend -->
+                        </p>
+                    </div>
+
+                    <!-- 6 CARDS CONTAINER (The core POC constraint: Top 12 pgvector -> 6 Cards to LLM) -->
+                    <div>
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-sm font-bold uppercase tracking-wide text-gray-300 flex items-center gap-2">
+                                <i class="fa-solid fa-map-pin text-brand-500"></i> 6 Recommended Vibe Places ( North Filter )
+                            </h3>
+                            <span class="text-xs text-gray-500 font-mono">Limit: 6 cards strictly</span>
+                        </div>
+
+                        <div id="cards-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Populated dynamically with JavaScript -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bottom Chat Composer -->
+                <div class="p-3 bg-darkbg-800 border-t border-darkbg-600">
+                    <form id="chat-form" onsubmit="handleVibeSearch(event)" class="flex gap-2">
+                        <div class="relative flex-1">
+                            <input 
+                                type="text" 
+                                id="vibe-input" 
+                                placeholder="พิมพ์ Vibe หรือสไตล์เที่ยวที่ต้องการ (เช่น 'คาเฟ่ไม้สไตล์ล้านนา วิวเขียวขจี อากาศเย็น')..." 
+                                class="w-full bg-darkbg-900 border border-darkbg-600 rounded-xl pl-4 pr-10 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-brand-500 shadow-inner"
+                                required
+                            />
+                            <button type="button" onclick="clearInput()" class="absolute right-3 top-3 text-gray-500 hover:text-gray-300 text-sm">
+                                <i class="fa-solid fa-circle-xmark"></i>
+                            </button>
+                        </div>
+                        <button type="submit" class="bg-gradient-to-r from-brand-600 to-emerald-500 hover:from-brand-500 hover:to-emerald-400 text-slate-950 font-bold px-5 py-3 rounded-xl transition-all shadow-lg flex items-center gap-2">
+                            <span>ค้นหา</span>
+                            <i class="fa-solid fa-paper-plane"></i>
+                        </button>
+                    </form>
+                    <div class="mt-2 flex items-center justify-between text-[11px] text-gray-400 px-1">
+                        <span>POST /v1/search • Gemini Embedding 768 dims</span>
+                        <span class="text-amber-400/90"><i class="fa-solid fa-circle-info mr-1"></i>LLM sees only 6 cards, never full TAT dump</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- RIGHT SIDEBAR: Interactive Map View -->
+            <aside class="w-full md:w-96 bg-darkbg-800 flex flex-col h-72 md:h-full border-t md:border-t-0 border-darkbg-600 relative">
+                <div class="p-3 bg-darkbg-900 border-b border-darkbg-600 flex justify-between items-center text-xs">
+                    <span class="font-bold text-gray-300 flex items-center gap-1.5">
+                        <i class="fa-solid fa-map text-cyan-400"></i> Interactive Map (Top 6 Pins)
+                    </span>
+                    <span class="text-gray-500 font-mono" id="map-counter-tag">6 Active Pins</span>
+                </div>
+                <!-- Leaflet Container -->
+                <div id="map" class="flex-1 w-full bg-darkbg-900 z-0"></div>
+                
+                <!-- Map Overlay Legend -->
+                <div class="absolute bottom-3 left-3 right-3 bg-darkbg-900/90 border border-darkbg-600 p-2 rounded-lg text-[11px] text-gray-300 z-10 backdrop-blur shadow-lg flex items-center justify-between">
+                    <div class="flex items-center space-x-2">
+                        <span class="w-3 h-3 rounded-full bg-brand-500 inline-block"></span>
+                        <span>Matched Vibe Location</span>
+                    </div>
+                    <span class="text-xs text-brand-400 font-mono">TAT North Database</span>
+                </div>
+            </aside>
+        </div>
+
+        <!-- ========================================================================= -->
+        <!-- VIEW 2: ARCHITECTURE & OPENAPI CONTRACT INSPECTOR -->
+        <!-- ========================================================================= -->
+        <div id="view-arch" class="hidden flex-1 flex flex-col md:flex-row w-full overflow-y-auto bg-darkbg-900 p-4 gap-6">
+            
+            <!-- LEFT COLUMN: System Architecture & LLM Fallback Pipeline -->
+            <div class="w-full md:w-1/2 space-y-6">
+                
+                <!-- Architecture Summary Box -->
+                <div class="bg-darkbg-800 border border-darkbg-600 rounded-2xl p-5 shadow-xl">
+                    <h2 class="text-lg font-bold text-white mb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-cubes text-brand-500"></i> System Concept & Repo Split
+                    </h2>
+                    <p class="text-xs text-gray-300 leading-relaxed mb-4">
+                        VibeRoute adopts a strict contract-first design. Frontend & Backend are totally decoupled over HTTP OpenAPI specification.
+                    </p>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        <div class="bg-darkbg-900 p-3 rounded-xl border border-darkbg-600">
+                            <span class="font-bold text-brand-400 block mb-1">backend/ (FastAPI)</span>
+                            <ul class="text-gray-400 space-y-1 list-disc list-inside">
+                                <li>Ingest 2,077 North TAT listings</li>
+                                <li>Gemini gemini-embedding-001</li>
+                                <li>Supabase pgvector search</li>
+                                <li>NVIDIA → Gemini Explain pipeline</li>
+                            </ul>
+                        </div>
+                        <div class="bg-darkbg-900 p-3 rounded-xl border border-darkbg-600">
+                            <span class="font-bold text-cyan-400 block mb-1">frontend/ (Vite+React)</span>
+                            <ul class="text-gray-400 space-y-1 list-disc list-inside">
+                                <li>Search UX & History Sidebar</li>
+                                <li>Interactive Map & Popups</li>
+                                <li>Photo Upload & Fav Toggles</li>
+                                <li>Never holds API keys/vector math</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LLM Fallback Pipeline Visualizer -->
+                <div class="bg-darkbg-800 border border-darkbg-600 rounded-2xl p-5 shadow-xl space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-base font-bold text-white flex items-center gap-2">
+                                <i class="fa-solid fa-diagram-next text-amber-400"></i> LLM Fallback Sequence Visualizer
+                            </h3>
+                            <p class="text-xs text-gray-400">Triggers only on 429, auth error, timeout, 5xx, or network failure.</p>
+                        </div>
+                        <button onclick="triggerSimulatedFallback()" class="text-xs bg-amber-600/20 hover:bg-amber-600/40 text-amber-300 border border-amber-500/50 px-3 py-1.5 rounded-lg transition">
+                            Simulate Failure & Fallback
+                        </button>
+                    </div>
+
+                    <!-- Fallback Chain Steps -->
+                    <div class="space-y-2 font-mono text-xs" id="fallback-chain-container">
+                        <!-- Step 1 -->
+                        <div id="fallback-step-1" class="p-3 rounded-xl bg-brand-950/60 border border-brand-500 flex items-center justify-between transition-all">
+                            <div class="flex items-center space-x-3">
+                                <span class="w-6 h-6 rounded-full bg-brand-500 text-slate-950 font-bold flex items-center justify-center text-xs">1</span>
+                                <div>
+                                    <div class="font-bold text-white">nvidia/nemotron-3.5-lightning-30b-a3b</div>
+                                    <div class="text-[10px] text-gray-400">Primary Explain Model</div>
+                                </div>
+                            </div>
+                            <span class="px-2 py-0.5 rounded bg-emerald-900 text-emerald-300 text-[10px] border border-emerald-600 flex items-center gap-1">
+                                <i class="fa-solid fa-circle text-[8px]"></i> ACTIVE
+                            </span>
+                        </div>
+
+                        <!-- Step 2 -->
+                        <div id="fallback-step-2" class="p-3 rounded-xl bg-darkbg-900 border border-darkbg-600 flex items-center justify-between opacity-60">
+                            <div class="flex items-center space-x-3">
+                                <span class="w-6 h-6 rounded-full bg-darkbg-700 text-gray-400 font-bold flex items-center justify-center text-xs">2</span>
+                                <div>
+                                    <div class="font-bold text-gray-300">nvidia/nemotron-3-nano-30b-a3b</div>
+                                    <div class="text-[10px] text-gray-500">NVIDIA Backup</div>
+                                </div>
+                            </div>
+                            <span class="text-[10px] text-gray-500">STANDBY</span>
+                        </div>
+
+                        <!-- Step 3 -->
+                        <div id="fallback-step-3" class="p-3 rounded-xl bg-darkbg-900 border border-darkbg-600 flex items-center justify-between opacity-60">
+                            <div class="flex items-center space-x-3">
+                                <span class="w-6 h-6 rounded-full bg-darkbg-700 text-gray-400 font-bold flex items-center justify-center text-xs">3</span>
+                                <div>
+                                    <div class="font-bold text-gray-300">nvidia/llama-3.1-nemotron-nano-8b-v1</div>
+                                    <div class="text-[10px] text-gray-500">NVIDIA Small Backup</div>
+                                </div>
+                            </div>
+                            <span class="text-[10px] text-gray-500">STANDBY</span>
+                        </div>
+
+                        <!-- Step 4 -->
+                        <div id="fallback-step-4" class="p-3 rounded-xl bg-darkbg-900 border border-darkbg-600 flex items-center justify-between opacity-60">
+                            <div class="flex items-center space-x-3">
+                                <span class="w-6 h-6 rounded-full bg-darkbg-700 text-gray-400 font-bold flex items-center justify-center text-xs">4</span>
+                                <div>
+                                    <div class="font-bold text-gray-300">gemini-3.7-flash</div>
+                                    <div class="text-[10px] text-gray-500">Gemini Backup</div>
+                                </div>
+                            </div>
+                            <span class="text-[10px] text-gray-500">STANDBY</span>
+                        </div>
+
+                        <!-- Step 5 -->
+                        <div id="fallback-step-5" class="p-3 rounded-xl bg-darkbg-900 border border-darkbg-600 flex items-center justify-between opacity-60">
+                            <div class="flex items-center space-x-3">
+                                <span class="w-6 h-6 rounded-full bg-darkbg-700 text-gray-400 font-bold flex items-center justify-center text-xs">5</span>
+                                <div>
+                                    <div class="font-bold text-gray-300">gemini-3.5-flash-lite</div>
+                                    <div class="text-[10px] text-gray-500">Gemini Flash-Lite Backup</div>
+                                </div>
+                            </div>
+                            <span class="text-[10px] text-gray-500">STANDBY</span>
+                        </div>
+
+                        <!-- Step 6 -->
+                        <div id="fallback-step-6" class="p-3 rounded-xl bg-darkbg-900 border border-darkbg-600 flex items-center justify-between opacity-60">
+                            <div class="flex items-center space-x-3">
+                                <span class="w-6 h-6 rounded-full bg-darkbg-700 text-gray-400 font-bold flex items-center justify-center text-xs">6</span>
+                                <div>
+                                    <div class="font-bold text-amber-400">none (Retrieval-Only Fallback)</div>
+                                    <div class="text-[10px] text-gray-500">Show TAT cards with raw vector snippet</div>
+                                </div>
+                            </div>
+                            <span class="text-[10px] text-gray-500">FINAL FALLBACK</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT COLUMN: OpenAPI Endpoint Simulator Bench -->
+            <div class="w-full md:w-1/2 space-y-6">
+                <div class="bg-darkbg-800 border border-darkbg-600 rounded-2xl p-5 shadow-xl flex flex-col h-full">
+                    <div class="flex items-center justify-between mb-4 border-b border-darkbg-600 pb-3">
+                        <h3 class="text-base font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-code text-cyan-400"></i> OpenAPI HTTP Contract Mock Tester
+                        </h3>
+                        <span class="text-xs bg-darkbg-900 px-2.5 py-1 rounded border border-darkbg-600 text-gray-400 font-mono">
+                            contracts/openapi.yaml
+                        </span>
+                    </div>
+
+                    <!-- Endpoint Buttons Grid -->
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4 text-xs font-mono">
+                        <button onclick="testEndpoint('GET', '/v1/health')" class="p-2 rounded bg-darkbg-700 hover:bg-brand-900/50 hover:border-brand-500 border border-darkbg-600 text-left text-gray-200 transition">
+                            <span class="text-emerald-400 font-bold">GET</span> /v1/health
+                        </button>
+                        <button onclick="testEndpoint('POST', '/v1/search')" class="p-2 rounded bg-darkbg-700 hover:bg-brand-900/50 hover:border-brand-500 border border-darkbg-600 text-left text-gray-200 transition">
+                            <span class="text-amber-400 font-bold">POST</span> /v1/search
+                        </button>
+                        <button onclick="testEndpoint('GET', '/v1/chats')" class="p-2 rounded bg-darkbg-700 hover:bg-brand-900/50 hover:border-brand-500 border border-darkbg-600 text-left text-gray-200 transition">
+                            <span class="text-emerald-400 font-bold">GET</span> /v1/chats
+                        </button>
+                        <button onclick="testEndpoint('GET', '/v1/chats/{id}')" class="p-2 rounded bg-darkbg-700 hover:bg-brand-900/50 hover:border-brand-500 border border-darkbg-600 text-left text-gray-200 transition">
+                            <span class="text-emerald-400 font-bold">GET</span> /v1/chats/{id}
+                        </button>
+                        <button onclick="testEndpoint('POST', '/v1/feedback')" class="p-2 rounded bg-darkbg-700 hover:bg-brand-900/50 hover:border-brand-500 border border-darkbg-600 text-left text-gray-200 transition">
+                            <span class="text-amber-400 font-bold">POST</span> /v1/feedback
+                        </button>
+                        <button onclick="testEndpoint('POST', '/v1/places/{id}/images')" class="p-2 rounded bg-darkbg-700 hover:bg-brand-900/50 hover:border-brand-500 border border-darkbg-600 text-left text-gray-200 transition">
+                            <span class="text-amber-400 font-bold">POST</span> /v1/places/img
+                        </button>
+                        <button onclick="testEndpoint('POST', '/v1/images/{id}/favorite')" class="p-2 rounded bg-darkbg-700 hover:bg-brand-900/50 hover:border-brand-500 border border-darkbg-600 text-left text-gray-200 transition">
+                            <span class="text-amber-400 font-bold">POST</span> /v1/images/fav
+                        </button>
+                        <button onclick="testEndpoint('GET', '/v1/regions')" class="p-2 rounded bg-darkbg-700 hover:bg-brand-900/50 hover:border-brand-500 border border-darkbg-600 text-left text-gray-200 transition">
+                            <span class="text-emerald-400 font-bold">GET</span> /v1/regions
+                        </button>
+                        <button onclick="testEndpoint('GET', '/v1/provinces')" class="p-2 rounded bg-darkbg-700 hover:bg-brand-900/50 hover:border-brand-500 border border-darkbg-600 text-left text-gray-200 transition">
+                            <span class="text-emerald-400 font-bold">GET</span> /v1/provinces
+                        </button>
+                    </div>
+
+                    <!-- Mock Terminal Screen -->
+                    <div class="flex-1 bg-black rounded-xl p-4 border border-darkbg-600 font-mono text-xs flex flex-col justify-between space-y-3 min-h-[350px]">
+                        <div class="flex items-center justify-between border-b border-gray-800 pb-2">
+                            <div class="flex items-center space-x-2">
+                                <span class="w-3 h-3 rounded-full bg-red-500 inline-block"></span>
+                                <span class="w-3 h-3 rounded-full bg-yellow-500 inline-block"></span>
+                                <span class="w-3 h-3 rounded-full bg-green-500 inline-block"></span>
+                                <span class="text-gray-400 text-[11px] ml-2" id="api-active-endpoint">POST /v1/search</span>
+                            </div>
+                            <span class="text-emerald-400 font-bold" id="api-status-code">200 OK (38ms)</span>
+                        </div>
+
+                        <!-- JSON Viewer Box -->
+                        <pre id="api-json-output" class="flex-1 overflow-y-auto text-emerald-400 text-[11px] leading-relaxed p-2 bg-slate-950 rounded border border-gray-900">
+{
+  "status": "Select an endpoint above to execute OpenAPI mock response",
+  "contract_compliance": "OpenAPI 3.0 Strict Schema",
+  "region_scope": "North (2,077 Listings)"
+}
+                        </pre>
+
+                        <div class="text-[10px] text-gray-500 flex justify-between pt-1 border-t border-gray-900">
+                            <span>Shared contract: openapi.yaml</span>
+                            <span>Backend owns model keys & routing</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- UPLOAD PHOTO MODAL (POST /v1/places/{id}/images) -->
+    <div id="upload-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-darkbg-800 border border-darkbg-600 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-darkbg-600 pb-3">
+                <h3 class="font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-camera text-brand-500"></i> เพิ่มรูปถ่ายสถานที่ (Upload Photo)
+                </h3>
+                <button onclick="closeUploadModal()" class="text-gray-400 hover:text-white">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div>
+                <p id="modal-place-title" class="text-xs text-brand-400 font-bold mb-2">
+                    <!-- Place Name -->
+                </p>
+                <label class="block text-xs text-gray-400 mb-1">เลือกรูปภาพ หรือ URL รูปภาพ:</label>
+                <input type="text" id="upload-img-url" placeholder="https://images.unsplash.com/..." class="w-full bg-darkbg-900 border border-darkbg-600 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-brand-500 mb-3" />
+                
+                <div class="border-2 border-dashed border-darkbg-600 rounded-xl p-4 text-center hover:border-brand-500 transition cursor-pointer bg-darkbg-900/50" onclick="document.getElementById('upload-img-url').value='https://images.unsplash.com/photo-1590523741831-ab7e8b8f9c7f?auto=format&fit=crop&w=800&q=80'">
+                    <i class="fa-solid fa-cloud-arrow-up text-2xl text-gray-500 mb-1"></i>
+                    <p class="text-xs text-gray-300">คลิกเพื่อใช้รูปตัวอย่างสมมติ (Unsplash Demo)</p>
+                    <p class="text-[10px] text-gray-500">Phase 1: Auto-accepted upon upload</p>
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-2 pt-2">
+                <button onclick="closeUploadModal()" class="px-3 py-1.5 rounded-lg bg-darkbg-700 text-gray-300 text-xs hover:bg-darkbg-600">
+                    ยกเลิก
+                </button>
+                <button onclick="submitUserPhoto()" class="px-4 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-bold text-xs shadow-lg">
+                    อัปโหลดทันที (POST)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- APPLICATION JAVASCRIPT LOGIC -->
+    <script>
+        // =========================================================================
+        // MOCK DATA: 2,077 TAT North Listings Reranked to Top 6 Demo Cards
+        // =========================================================================
+        const MOCK_TAT_NORTH_PLACES = [
+            {
+                id: "tat-n-001",
+                name: "ดอยอินทนนท์ & กิ่วแม่ปาน (Doi Inthanon)",
+                province: "Chiang Mai",
+                region: "North",
+                lat: 18.5888,
+                lng: 98.4832,
+                opening_hours: "05:00 - 18:00 น.",
+                fee_status: "confirmed", // confirmed | unknown
+                fee_text: "300 THB (ต่างชาติ) / 50 THB (คนไทย)",
+                photos: [
+                    { id: "img-01", url: "https://images.unsplash.com/photo-1589308078059-be1415eab4c3?auto=format&fit=crop&w=800&q=80", favs: 42 },
+                    { id: "img-02", url: "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=800&q=80", favs: 18 }
+                ],
+                vibe_tag: "🌄 Misty Peak & Cloud Forest",
+                llm_explanation: "จุดสูงสุดของประเทศไทย อากาศหนาวเย็นตลอดปี เส้นทางเดินศึกษาธรรมชาติกิ่วแม่ปานมีทะเลหมอกยามเช้าอันสวยงามและป่าปอนโบราณ เหมาะสำหรับคนชอบบรรยากาศธรรมชาติเงียบสงบ",
+                is_secondary: false,
+                feedback: null // 'straight' | 'not_straight'
+            },
+            {
+                id: "tat-n-002",
+                name: "วัดร่องขุ่น (Wat Rong Khun - White Temple)",
+                province: "Chiang Rai",
+                region: "North",
+                lat: 19.8242,
+                lng: 99.7631,
+                opening_hours: "08:00 - 17:00 น.",
+                fee_status: "confirmed",
+                fee_text: "100 THB (ต่างชาติ) / ฟรี (คนไทย)",
+                photos: [
+                    { id: "img-03", url: "https://images.unsplash.com/photo-1528181304800-259b08848526?auto=format&fit=crop&w=800&q=80", favs: 89 }
+                ],
+                vibe_tag: "🛕 Surreal White Architecture",
+                llm_explanation: "วัดสีขาวบริสุทธิ์ประดับกระจกแวววาว งานสถาปัตยกรรมระดับโลกโดยอาจารย์เฉลิมชัย สะท้อนความวิจิตรบรรจง และความสงบเงียบแฝงธรรมะ",
+                is_secondary: false,
+                feedback: null
+            },
+            {
+                id: "tat-n-003",
+                name: "ปายแคนยอน & กองลาน (Pai Canyon)",
+                province: "Mae Hong Son",
+                region: "North",
+                lat: 19.3389,
+                lng: 98.4528,
+                opening_hours: "เปิดตลอด 24 ชั่วโมง",
+                fee_status: "confirmed",
+                fee_text: "ฟรีค่าเข้าชม",
+                photos: [
+                    { id: "img-04", url: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80", favs: 29 }
+                ],
+                vibe_tag: "🌅 Sunset Ridge & Valley Vibe",
+                llm_explanation: "เส้นทางเดินบนแนวหน้าผาดินแคนยอนธรรมชาติ มองเห็นทิวเขาและป่าไม้แบบ 360 องศา บรรยากาศช่วงพระอาทิตย์ตกดินมีความโรแมนติกและผ่อนคลาย",
+                is_secondary: true,
+                feedback: null
+            },
+            {
+                id: "tat-n-004",
+                name: "วัดพระธาตุลำปางหลวง (Wat Phra That Lampang Luang)",
+                province: "Lampang",
+                region: "North",
+                lat: 18.2169,
+                lng: 99.3888,
+                opening_hours: "07:30 - 17:00 น.",
+                fee_status: "confirmed",
+                fee_text: "ฟรีค่าเข้าชม (รับเงินบริจาคตามศรัทธา)",
+                photos: [
+                    { id: "img-05", url: "https://images.unsplash.com/photo-1609949279531-cf48d64bed89?auto=format&fit=crop&w=800&q=80", favs: 55 }
+                ],
+                vibe_tag: "📜 Ancient Lanna Wooden Temple",
+                llm_explanation: "สถาปัตยกรรมไม้ล้านนาสมบูรณ์ที่สุดแห่งหนึ่ง มีเงาพระธาตุหัวกลับอันน่าอัศจรรย์ บรรยากาศขรึมขลังและคงเอกลักษณ์วัฒนธรรมดั้งเดิม",
+                is_secondary: true,
+                feedback: null
+            },
+            {
+                id: "tat-n-005",
+                name: "ถนนคนเดินน่าน & วัดภูมินทร์ (Nan Old Town)",
+                province: "Nan",
+                region: "North",
+                lat: 18.7758,
+                lng: 100.7717,
+                opening_hours: "เปิดทุกวัน (ถนนคนเดินมี ศ.-อา. 17:00-22:00)",
+                fee_status: "unknown",
+                fee_text: "ไม่ระบุข้อมูลค่าเข้าชมแน่ชัด",
+                photos: [
+                    { id: "img-06", url: "https://images.unsplash.com/photo-1590523741831-ab7e8b8f9c7f?auto=format&fit=crop&w=800&q=80", favs: 67 }
+                ],
+                vibe_tag: "🚲 Slow Life & Whisper of Love",
+                llm_explanation: "ย่านเมืองเก่าน่านแสนสงบ ชมภาพจิตรกรรมปู่ม่านย่าม่าน 'ปู่ม่านย่าม่าน กระซิบรัก' สัมผัสวิถีชีวิตสโลว์ไลฟ์และอาหารพื้นบ้านน่าน",
+                is_secondary: true,
+                feedback: null
+            },
+            {
+                id: "tat-n-006",
+                name: "กว๊านพะเยา (Kwan Phayao Lake)",
+                province: "Phayao",
+                region: "North",
+                lat: 19.1661,
+                lng: 99.8964,
+                opening_hours: "เปิดตลอด 24 ชั่วโมง (เรือนั่งไปวัดติโลกอาราม 08:00-17:30)",
+                fee_status: "confirmed",
+                fee_text: "นั่งพายเรือ 50 THB",
+                photos: [
+                    { id: "img-07", url: "https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=800&q=80", favs: 31 }
+                ],
+                vibe_tag: "⛵ Serene Freshwater Lake & Sunset",
+                llm_explanation: "ทะเลสาบน้ำจืดขนาดใหญ่ที่สุดในภาคเหนือ บรรยากาศริมน้ำลมพัดเย็นสบาย นั่งเรือพายไปเวียนเทียนกลางน้ำที่วัดติโลกอารามแห่งเดียวในโลก",
+                is_secondary: true,
+                feedback: null
+            }
+        ];
+
+        // Chat History State (GET /v1/chats)
+        let CHAT_HISTORY = [
+            { id: "chat-001", query: "คาเฟ่วิวหมอก กาแฟดริป เชียงใหม่", timestamp: "10 นาทีที่แล้ว", count: 6 },
+            { id: "chat-002", query: "วัดโบราณเงียบสงบ น่าน ลำปาง", timestamp: "2 ชั่วโมงที่แล้ว", count: 6 },
+            { id: "chat-003", query: "จุดชมวิวพระอาทิตย์ตก แม่ฮ่องสอน", timestamp: "เมื่อวาน", count: 6 }
+        ];
+
+        // Active Application State
+        let activePlaces = [...MOCK_TAT_NORTH_PLACES];
+        let mapInstance = null;
+        let mapMarkers = [];
+        let selectedPlaceForUpload = null;
+        let currentLLMStep = 1;
+
+        // =========================================================================
+        // INITIALIZATION & MAP SETUP
+        // =========================================================================
+        window.onload = function() {
+            initMap();
+            renderChatHistory();
+            renderCards(activePlaces);
+            updateMapMarkers(activePlaces);
+        };
+
+        function initMap() {
+            // Center around Northern Thailand (Chiang Mai coordinates)
+            mapInstance = L.map('map').setView([18.7883, 98.9853], 7);
+
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap &copy; CARTO',
+                subdomains: 'abcd',
+                maxZoom: 19
+            }).addTo(mapInstance);
+        }
+
+        function updateMapMarkers(places) {
+            if (!mapInstance) return;
+
+            // Clear previous markers
+            mapMarkers.forEach(m => mapInstance.removeLayer(m));
+            mapMarkers = [];
+
+            const bounds = [];
+
+            places.forEach((place, index) => {
+                const markerIcon = L.divIcon({
+                    className: 'custom-div-icon',
+                    html: `<div style="background-color: #10b981; color: #0a0d14; font-weight: bold; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 0 10px rgba(16,185,129,0.8);">${index + 1}</div>`,
+                    iconSize: [26, 26],
+                    iconAnchor: [13, 13]
+                });
+
+                const marker = L.marker([place.lat, place.lng], { icon: markerIcon }).addTo(mapInstance);
+                
+                const topPhoto = getTopPhoto(place);
+                const popupContent = `
+                    <div style="font-family: 'Kanit', sans-serif; color: #111; max-width: 200px;">
+                        <img src="${topPhoto.url}" style="width: 100%; height: 100px; object-fit: cover; border-radius: 6px; mb-2;" />
+                        <h4 style="font-weight: bold; font-size: 13px; margin: 4px 0;">${place.name}</h4>
+                        <p style="font-size: 11px; color: #666; margin-bottom: 4px;"><i class="fa-solid fa-location-dot"></i> ${place.province}</p>
+                        <span style="font-size: 10px; background: #dcfce7; color: #047857; padding: 2px 6px; border-radius: 4px; font-weight: 500;">${place.vibe_tag}</span>
+                    </div>
+                `;
+
+                marker.bindPopup(popupContent);
+                mapMarkers.push(marker);
+                bounds.push([place.lat, place.lng]);
+            });
+
+            if (bounds.length > 0) {
+                mapInstance.fitBounds(bounds, { padding: [30, 30] });
+            }
+        }
+
+        // =========================================================================
+        // CARD RENDERING & FE UX LOGIC
+        // =========================================================================
+        function getTopPhoto(place) {
+            // Sort by favs descending so highest-fav photo leads the card
+            return [...place.photos].sort((a, b) => b.favs - a.favs)[0];
+        }
+
+        function renderCards(places) {
+            const container = document.getElementById('cards-grid');
+            container.innerHTML = '';
+
+            places.forEach((place, index) => {
+                const topPhoto = getTopPhoto(place);
+                
+                // Status badge for fee
+                let feeBadge = '';
+                if (place.fee_status === 'confirmed') {
+                    feeBadge = `<span class="bg-emerald-950 text-emerald-400 border border-emerald-700 px-2 py-0.5 rounded text-[10px] font-mono"><i class="fa-solid fa-circle-check"></i> ${place.fee_text}</span>`;
+                } else {
+                    feeBadge = `<span class="bg-amber-950 text-amber-300 border border-amber-700 px-2 py-0.5 rounded text-[10px] font-mono"><i class="fa-solid fa-circle-question"></i> ค่าเข้าชม: ไม่ระบุแน่ชัด</span>`;
+                }
+
+                // Feedback button status
+                const isStraight = place.feedback === 'straight';
+                const isNotStraight = place.feedback === 'not_straight';
+
+                const cardHTML = `
+                    <div class="bg-darkbg-800 border border-darkbg-600 rounded-2xl overflow-hidden hover:border-brand-500/50 transition-all shadow-xl flex flex-col justify-between group">
+                        
+                        <!-- Top Image & Cover Header -->
+                        <div class="relative h-44 overflow-hidden bg-darkbg-900">
+                            <img src="${topPhoto.url}" alt="${place.name}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                            <div class="absolute inset-0 bg-gradient-to-t from-darkbg-900 via-transparent to-black/40"></div>
+                            
+                            <!-- Index Badge -->
+                            <div class="absolute top-3 left-3 bg-brand-500 text-slate-950 font-bold w-7 h-7 rounded-full flex items-center justify-center text-xs shadow-lg">
+                                #${index + 1}
+                            </div>
+
+                            <!-- Province & Secondary Tag -->
+                            <div class="absolute top-3 right-3 flex items-center gap-1.5">
+                                ${place.is_secondary ? '<span class="bg-amber-500/90 text-slate-950 font-bold px-2 py-0.5 rounded text-[10px]">เมืองรอง</span>' : ''}
+                                <span class="bg-black/70 backdrop-blur text-white px-2.5 py-0.5 rounded-full text-xs border border-white/20">
+                                    <i class="fa-solid fa-location-dot text-brand-400 mr-1"></i>${place.province}
+                                </span>
+                            </div>
+
+                            <!-- Photo Favorite Toggle Pill -->
+                            <button onclick="togglePhotoFav('${place.id}', '${topPhoto.id}')" class="absolute bottom-3 right-3 bg-darkbg-900/80 hover:bg-black text-amber-400 px-2.5 py-1 rounded-full text-xs border border-amber-500/40 flex items-center gap-1.5 transition">
+                                <i class="fa-solid fa-star"></i>
+                                <span class="font-bold font-mono">${topPhoto.favs}</span>
+                                <span class="text-[10px] text-gray-400">(Top Cover)</span>
+                            </button>
+                        </div>
+
+                        <!-- Card Body -->
+                        <div class="p-4 space-y-3 flex-1 flex flex-col justify-between">
+                            <div>
+                                <div class="flex items-center justify-between gap-2 mb-1">
+                                    <h3 class="font-bold font-kanit text-base text-white hover:text-brand-400 cursor-pointer" onclick="focusMapPin(${index})">
+                                        ${place.name}
+                                    </h3>
+                                </div>
+                                
+                                <div class="text-[11px] text-brand-400 font-semibold mb-2 flex items-center gap-1">
+                                    <span>${place.vibe_tag}</span>
+                                </div>
+
+                                <!-- LLM Short Vibe Explanation -->
+                                <p class="text-xs text-gray-300 leading-relaxed bg-darkbg-900/60 p-2.5 rounded-xl border border-darkbg-600 mb-3">
+                                    <i class="fa-solid fa-quote-left text-brand-500/40 mr-1"></i>
+                                    ${place.llm_explanation}
+                                </p>
+
+                                <!-- Opening Hours & Fee -->
+                                <div class="space-y-1 text-[11px] text-gray-400">
+                                    <div class="flex items-center gap-1.5">
+                                        <i class="fa-regular fa-clock text-cyan-400"></i>
+                                        <span>เวลาเปิด-ปิด: <strong class="text-gray-200">${place.opening_hours}</strong></span>
+                                    </div>
+                                    <div class="flex items-center gap-1.5">
+                                        <i class="fa-solid fa-ticket text-amber-400"></i>
+                                        ${feeBadge}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Card Bottom Action Bar: Feedback + Upload Photo -->
+                            <div class="pt-3 border-t border-darkbg-600/80 flex items-center justify-between text-xs">
+                                <!-- Feedback Buttons (POST /v1/feedback) -->
+                                <div class="flex items-center space-x-1">
+                                    <span class="text-[10px] text-gray-500 mr-1">ตรง Vibe?</span>
+                                    <button onclick="sendFeedback('${place.id}', 'straight')" class="px-2.5 py-1 rounded-lg border transition ${isStraight ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-darkbg-900 text-gray-400 border-darkbg-600 hover:text-emerald-400'}">
+                                        <i class="fa-solid fa-thumbs-up mr-1"></i>ตรง
+                                    </button>
+                                    <button onclick="sendFeedback('${place.id}', 'not_straight')" class="px-2.5 py-1 rounded-lg border transition ${isNotStraight ? 'bg-red-600 text-white border-red-500' : 'bg-darkbg-900 text-gray-400 border-darkbg-600 hover:text-red-400'}">
+                                        <i class="fa-solid fa-thumbs-down mr-1"></i>ไม่ตรง
+                                    </button>
+                                </div>
+
+                                <!-- Add Photo Button (POST /v1/places/{id}/images) -->
+                                <button onclick="openUploadModal('${place.id}', '${place.name}')" class="text-xs text-brand-400 hover:text-brand-300 font-medium flex items-center gap-1 bg-darkbg-900 px-2.5 py-1 rounded-lg border border-darkbg-600 hover:border-brand-500 transition">
+                                    <i class="fa-solid fa-camera"></i> +เพิ่มรูป
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                container.innerHTML += cardHTML;
+            });
+        }
+
+        function focusMapPin(index) {
+            if (mapMarkers[index]) {
+                mapMarkers[index].openPopup();
+                mapInstance.panTo(mapMarkers[index].getLatLng());
+            }
+        }
+
+        // =========================================================================
+        // USER SEARCH & INTERACTION HANDLERS
+        // =========================================================================
+        function handleVibeSearch(e) {
+            e.preventDefault();
+            const input = document.getElementById('vibe-input');
+            const vibeQuery = input.value.trim();
+            if (!vibeQuery) return;
+
+            // Show active summary box
+            const summaryBox = document.getElementById('vibe-summary-box');
+            const summaryText = document.getElementById('vibe-summary-text');
+            summaryBox.classList.remove('hidden');
+            summaryText.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-brand-500"></i> กำลังรัน Gemini Embedding (768 dims) + pgvector top-12 แล้วส่งให้ NVIDIA Nemotron สรุป 6 การ์ด...`;
+
+            setTimeout(() => {
+                summaryText.innerText = `ผลการค้นหาตาม Vibe: "${vibeQuery}" — คัดเลือกจาก 2,077 สถานที่ท่องเที่ยวภาคเหนือ โดยวิเคราะห์เวกเตอร์ความหมาย และคัดเลือก 6 สถานที่ที่ตรงบรรยากาศที่สุด:`;
+                
+                // Add to history
+                CHAT_HISTORY.unshift({
+                    id: "chat-" + Date.now(),
+                    query: vibeQuery,
+                    timestamp: "เมื่อครู่นี้",
+                    count: 6
+                });
+                renderChatHistory();
+
+                // Re-render map and cards
+                renderCards(activePlaces);
+                updateMapMarkers(activePlaces);
+            }, 600);
+        }
+
+        function quickVibe(query) {
+            document.getElementById('vibe-input').value = query;
+            handleVibeSearch(new Event('submit'));
+        }
+
+        function clearInput() {
+            document.getElementById('vibe-input').value = '';
+        }
+
+        function sendFeedback(placeId, feedbackType) {
+            const place = activePlaces.find(p => p.id === placeId);
+            if (place) {
+                place.feedback = place.feedback === feedbackType ? null : feedbackType;
+                renderCards(activePlaces);
+                
+                // Execute endpoint preview in arch tab background
+                testEndpoint('POST', '/v1/feedback', { place_id: placeId, type: feedbackType });
+            }
+        }
+
+        function togglePhotoFav(placeId, photoId) {
+            const place = activePlaces.find(p => p.id === placeId);
+            if (place) {
+                const photo = place.photos.find(img => img.id === photoId);
+                if (photo) {
+                    photo.favs += 1;
+                    // Re-render so highest fav leads as top cover
+                    renderCards(activePlaces);
+                    testEndpoint('POST', '/v1/images/{id}/favorite', { image_id: photoId, place_id: placeId });
+                }
+            }
+        }
+
+        // =========================================================================
+        // UPLOAD PHOTO MODAL LOGIC (POST /v1/places/{id}/images)
+        // =========================================================================
+        function openUploadModal(placeId, placeName) {
+            selectedPlaceForUpload = placeId;
+            document.getElementById('modal-place-title').innerText = "สถานที่: " + placeName;
+            document.getElementById('upload-modal').classList.remove('hidden');
+        }
+
+        function closeUploadModal() {
+            document.getElementById('upload-modal').classList.add('hidden');
+            selectedPlaceForUpload = null;
+        }
+
+        function submitUserPhoto() {
+            const urlInput = document.getElementById('upload-img-url').value;
+            if (!urlInput) return;
+
+            const place = activePlaces.find(p => p.id === selectedPlaceForUpload);
+            if (place) {
+                const newImgId = "img-user-" + Date.now();
+                place.photos.push({
+                    id: newImgId,
+                    url: urlInput,
+                    favs: 99 // Set high fav so it auto-leads as cover in Phase 1
+                });
+
+                closeUploadModal();
+                renderCards(activePlaces);
+                testEndpoint('POST', '/v1/places/{id}/images', { place_id: selectedPlaceForUpload, image_url: urlInput, status: "auto_accepted" });
+            }
+        }
+
+        function renderChatHistory() {
+            const container = document.getElementById('chat-history-list');
+            container.innerHTML = '';
+            CHAT_HISTORY.forEach(item => {
+                container.innerHTML += `
+                    <div onclick="quickVibe('${item.query}')" class="p-2 rounded-lg hover:bg-darkbg-700/80 cursor-pointer transition text-xs border border-transparent hover:border-darkbg-600 group">
+                        <div class="font-medium text-gray-200 group-hover:text-brand-400 truncate">
+                            <i class="fa-regular fa-comments mr-1 text-gray-500"></i> ${item.query}
+                        </div>
+                        <div class="text-[10px] text-gray-500 flex justify-between mt-1">
+                            <span>${item.timestamp}</span>
+                            <span class="text-brand-500 font-mono">${item.count} Cards</span>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        function createNewChat() {
+            document.getElementById('vibe-input').value = '';
+            document.getElementById('vibe-summary-box').classList.add('hidden');
+            renderCards(activePlaces);
+        }
+
+        function updateProvinces() {
+            // POC filters North region strictly
+        }
+
+        // =========================================================================
+        // OPENAPI CONTRACT TESTER & ARCHITECTURE LOGIC
+        // =========================================================================
+        function switchView(mode) {
+            const appView = document.getElementById('view-app');
+            const archView = document.getElementById('view-arch');
+            const btnApp = document.getElementById('btn-view-app');
+            const btnArch = document.getElementById('btn-view-arch');
+
+            if (mode === 'app') {
+                appView.classList.remove('hidden');
+                archView.classList.add('hidden');
+                btnApp.className = "px-3 py-1.5 rounded-lg bg-brand-600 text-white font-semibold transition-all flex items-center space-x-1.5 shadow-md";
+                btnArch.className = "px-3 py-1.5 rounded-lg text-gray-400 hover:text-white transition-all flex items-center space-x-1.5";
+                // Trigger map resize refresh
+                setTimeout(() => { if (mapInstance) mapInstance.invalidateSize(); }, 200);
+            } else {
+                appView.classList.add('hidden');
+                archView.classList.remove('hidden');
+                btnArch.className = "px-3 py-1.5 rounded-lg bg-brand-600 text-white font-semibold transition-all flex items-center space-x-1.5 shadow-md";
+                btnApp.className = "px-3 py-1.5 rounded-lg text-gray-400 hover:text-white transition-all flex items-center space-x-1.5";
+            }
+        }
+
+        const OPENAPI_MOCK_RESPONSES = {
+            'GET /v1/health': {
+                status: "healthy",
+                assistant_ready: true,
+                fallback_level: "primary_active",
+                ingest_region_scope: "North",
+                total_listings_indexed: 2077,
+                timestamp: "2026-09-19T12:00:00Z"
+            },
+            'POST /v1/search': {
+                chat_id: "chat-99823",
+                vibe_query: "Misty mountain cafes with quiet coffee spots",
+                region: "North",
+                vector_search: {
+                    embedding_model: "gemini-embedding-001",
+                    dimensions: 768,
+                    vector_top_retrieved: 12,
+                    reranked_cards_to_llm: 6
+                },
+                llm_explanation_provider: "nvidia/nemotron-3.5-lightning-30b-a3b",
+                places_sent_to_llm: MOCK_TAT_NORTH_PLACES.map(p => ({ id: p.id, name: p.name, vibe_tag: p.vibe_tag }))
+            },
+            'GET /v1/chats': {
+                total_chats: CHAT_HISTORY.length,
+                chats: CHAT_HISTORY
+            },
+            'GET /v1/chats/{id}': {
+                chat_id: "chat-001",
+                messages: [
+                    { role: "user", content: "คาเฟ่วิวหมอก กาแฟดริป เชียงใหม่" },
+                    { role: "assistant", cards_returned: 6, explanation: "6 Misty places in Chiang Mai retrieved from pgvector" }
+                ]
+            },
+            'POST /v1/feedback': {
+                success: true,
+                message: "Feedback recorded successfully",
+                feedback_type: "ตรง / ไม่ตรง",
+                storage: "StoragePixels / pgvector feedback table"
+            },
+            'POST /v1/places/{id}/images': {
+                status: "success",
+                image_id: "img-user-9912",
+                phase: "phase_1_auto_accept",
+                favorite_lead_eligible: true
+            },
+            'POST /v1/images/{id}/favorite': {
+                status: "success",
+                action: "favorite_toggled",
+                new_cover_image_promoted: true
+            },
+            'GET /v1/regions': {
+                regions: [
+                    { id: "north", name_th: "ภาคเหนือ", active_poc: true, total: 2077 },
+                    { id: "central", name_th: "ภาคกลาง", active_poc: false },
+                    { id: "south", name_th: "ภาคใต้", active_poc: false },
+                    { id: "isan", name_th: "ภาคอีสาน", active_poc: false }
+                ]
+            },
+            'GET /v1/provinces': {
+                region: "North",
+                provinces: ["Chiang Mai", "Chiang Rai", "Mae Hong Son", "Nan", "Lampang", "Lamphun", "Phrae", "Phayao"]
+            }
+        };
+
+        function testEndpoint(method, path, body = null) {
+            const key = `${method} ${path}`;
+            const outputEl = document.getElementById('api-json-output');
+            const activeEpEl = document.getElementById('api-active-endpoint');
+            const statusEl = document.getElementById('api-status-code');
+
+            activeEpEl.innerText = key;
+            const res = OPENAPI_MOCK_RESPONSES[key] || { message: "Mock response executed", body_sent: body };
+            
+            outputEl.innerText = JSON.stringify(res, null, 2);
+            statusEl.innerText = "200 OK (" + Math.floor(Math.random() * 30 + 15) + "ms)";
+        }
+
+        // =========================================================================
+        // LLM FALLBACK PIPELINE SIMULATOR
+        // =========================================================================
+        const FALLBACK_STEPS = [
+            { id: 1, name: "nvidia/nemotron-3.5-lightning-30b-a3b", role: "Primary Explain" },
+            { id: 2, name: "nvidia/nemotron-3-nano-30b-a3b", role: "NVIDIA Backup" },
+            { id: 3, name: "nvidia/llama-3.1-nemotron-nano-8b-v1", role: "NVIDIA Small Backup" },
+            { id: 4, name: "gemini-3.7-flash", role: "Gemini Backup" },
+            { id: 5, name: "gemini-3.5-flash-lite", role: "Lite Backup (API name gemini-3.5-flash-lite)" },
+            { id: 6, name: "none", role: "Show TAT cards with raw vector snippet" }
+        ];
+
+        function triggerSimulatedFallback() {
+            currentLLMStep = (currentLLMStep % 6) + 1;
+            
+            for (let i = 1; i <= 6; i++) {
+                const el = document.getElementById(`fallback-step-${i}`);
+                if (i === currentLLMStep) {
+                    el.className = "p-3 rounded-xl bg-brand-950/80 border border-brand-500 flex items-center justify-between transition-all shadow-lg pulse-emerald";
+                    el.style.opacity = "1";
+                    el.querySelector('span:last-child').innerHTML = `<i class="fa-solid fa-circle text-[8px] animate-pulse"></i> ACTIVE`;
+                    el.querySelector('span:last-child').className = "px-2 py-0.5 rounded bg-emerald-900 text-emerald-300 text-[10px] border border-emerald-600 flex items-center gap-1 font-bold";
+                } else if (i < currentLLMStep) {
+                    el.className = "p-3 rounded-xl bg-red-950/40 border border-red-800/60 flex items-center justify-between transition-all";
+                    el.style.opacity = "0.6";
+                    el.querySelector('span:last-child').innerText = "FAILED / 429 SWITCH";
+                    el.querySelector('span:last-child').className = "px-2 py-0.5 rounded bg-red-950 text-red-400 text-[10px] border border-red-800";
+                } else {
+                    el.className = "p-3 rounded-xl bg-darkbg-900 border border-darkbg-600 flex items-center justify-between transition-all";
+                    el.style.opacity = "0.5";
+                    el.querySelector('span:last-child').innerText = "STANDBY";
+                    el.querySelector('span:last-child').className = "text-[10px] text-gray-500";
+                }
+            }
+
+            // Update main UI banner label
+            const activeModelObj = FALLBACK_STEPS.find(s => s.id === currentLLMStep);
+            document.getElementById('current-llm-label').innerText = activeModelObj.name;
+            
+            const badge = document.getElementById('llm-status-badge');
+            if (currentLLMStep === 6) {
+                badge.className = "text-[10px] px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700 flex items-center gap-1";
+                badge.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Retrieval-Only Fallback Active (TAT Direct Cards)`;
+            } else if (currentLLMStep > 1) {
+                badge.className = "text-[10px] px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700 flex items-center gap-1";
+                badge.innerHTML = `<i class="fa-solid fa-arrows-rotate"></i> Fallback Hop #${currentLLMStep - 1} Triggered (${activeModelObj.role})`;
+            } else {
+                badge.className = "text-[10px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 flex items-center gap-1";
+                badge.innerHTML = `<i class="fa-solid fa-shield-halved"></i> 200 OK • Vector Retrieval Top-12 → LLM Rerank 6`;
+            }
+        }
+    </script>
+</body>
+</html>
