@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: viberoute-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /v1/health
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: POC_REGION
+        value: ภาคเหนือ
+      - key: CORS_ORIGINS
+        value: https://vibe-route-ten.vercel.app,http://localhost:5173,http://localhost:8080,http://localhost
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false

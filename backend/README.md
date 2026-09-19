@@ -32,3 +32,26 @@ docker compose up --build
 ```
 
 Ingest still runs on the host (or `docker compose run --rm backend python scripts/ingest.py`) because it talks to Supabase, not a local database.
+
+## Render
+
+Click **Web Service** (not Static Site). Connect `surapas3022/vibe-route`.
+
+- Runtime: Docker
+- Dockerfile path: `backend/Dockerfile`
+- Docker build context: `backend`
+- Health check: `/v1/health`
+- Do not set `PORT` — Render injects it
+- Listings and embeddings stay in Supabase; do not upload `attraction.json`
+
+Paste these from local `.env` (never commit that file):
+
+- `GEMINI_API_KEY`
+- `NVIDIA_API_KEY`
+- `SUPABASE_URL`
+- `SUPABASE_SECRET_KEY`
+- `ADMIN_EMAILS`
+- `CORS_ORIGINS=https://vibe-route-ten.vercel.app,http://localhost:5173,http://localhost:8080`
+- `POC_REGION=ภาคเหนือ`
+
+After it is live, set Vercel `VITE_API_BASE` to `https://<service>.onrender.com` and redeploy the frontend. The free instance sleeps after idle; the first request can take about a minute.
