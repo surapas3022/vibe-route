@@ -11,7 +11,7 @@ def test_user_prompt_keeps_latest_and_earlier_turns():
         [{"att_id": "1", "name_th": "ห้วยจอกหลวง", "province": "แม่ฮ่องสอน"}],
         ["อยากไปที่หนาวๆ"],
     )
-    assert "Latest vibe: จะไปแม่ฮ่องสอน" in text
+    assert "Latest request: จะไปแม่ฮ่องสอน" in text
     assert "อยากไปที่หนาวๆ" in text
     assert "ห้วยจอกหลวง" in text
 

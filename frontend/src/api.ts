@@ -16,9 +16,10 @@ export type AuthResponse = {
 };
 
 export function getApiBase(): string {
-  const saved = localStorage.getItem(API_KEY);
-  if (saved == null) return "";
-  return saved.trim().replace(/\/$/, "");
+  const env = String(import.meta.env.VITE_API_BASE || "").trim().replace(/\/$/, "");
+  if (env) return env;
+  const saved = (localStorage.getItem(API_KEY) || "").trim().replace(/\/$/, "");
+  return saved;
 }
 
 export function setApiBase(url: string): string {
@@ -52,8 +53,16 @@ export function hasAuthSession(): boolean {
 
 const GATEWAY_COPY = "เซิร์ฟเวอร์ตอบช้าหรือกำลังรีสตาร์ท ลองค้นอีกครั้งได้เลย";
 
+const MISSING_BACKEND = "ยังเชื่อมเซิร์ฟเวอร์ไม่ได้ ลองเข้าสู่ระบบอีกครั้งภายหลัง";
+
+function looksLikeMissingBackend(text: string, status?: number): boolean {
+  if (status === 404 && /NOT_FOUND|page could not be found/i.test(text)) return true;
+  return /NOT_FOUND|page could not be found/i.test(text);
+}
+
 export function errorMessage(body: unknown, fallback: string, status?: number): string {
   if (status === 502 || status === 503 || status === 504) return GATEWAY_COPY;
+  if (looksLikeMissingBackend(JSON.stringify(body ?? ""), status)) return MISSING_BACKEND;
   if (body && typeof body === "object" && "detail" in body) {
     const detail = (body as { detail: unknown }).detail;
     if (typeof detail === "string") {

@@ -84,8 +84,15 @@ def hours_field(raw: object) -> dict:
     return {"status": "confirmed", "label": text, "text": text}
 
 
-def snippet_why(name: str, province: str, type_label: str | None, detail: str | None) -> str:
-    clip = re.sub(r"\s+", " ", (detail or "").strip())[:180]
+def snippet_why(
+    name: str,
+    province: str,
+    type_label: str | None,
+    detail: str | None,
+    *,
+    limit: int = 180,
+) -> str:
+    clip = re.sub(r"\s+", " ", (detail or "").strip())[:limit]
     kind = type_label or "แหล่งท่องเที่ยว"
     if clip:
         return f"{name} ที่{province} เป็น{kind} — {clip}"

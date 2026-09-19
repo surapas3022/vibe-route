@@ -15,9 +15,18 @@ from app.schemas import Place, SearchRequest, SearchResponse
 router = APIRouter()
 
 
-def _fallback_intro(query: str, prefer_secondary: bool, empty: bool, *, followup: bool = False) -> str:
+def _fallback_intro(
+    query: str,
+    prefer_secondary: bool,
+    empty: bool,
+    *,
+    followup: bool = False,
+    focus_name: str | None = None,
+) -> str:
     if empty:
         return "ไม่พบที่เที่ยวในภาคเหนือที่ตรงมู้ดนี้จากฐาน ททท."
+    if focus_name:
+        return f"{focus_name} จากฐาน ททท. ด้านล่างเป็นข้อมูลสถานที่นี้ และที่ใกล้เคียงในมู้ดเดิม"
     if followup:
         if prefer_secondary:
             return f"ค้นต่อตาม «{query}» จากฐาน ททท. ภาคเหนือ เน้นชุมชนและจังหวัดรอง"
@@ -33,7 +42,7 @@ def _save_message(
     chat_id: str,
     query: str,
     payload: SearchResponse,
-) -> None:
+) -> str:
     client = db.get_supabase()
     existing = client.table("chats").select("id").eq("id", chat_id).eq("session_id", session_id).execute()
     if not existing.data:
@@ -44,18 +53,20 @@ def _save_message(
                 "title": query[:80],
             }
         ).execute()
-    client.table("messages").insert(
-        {
-            "id": payload.message_id,
-            "chat_id": chat_id,
-            "query": query,
-            "prefer_secondary": payload.prefer_secondary,
-            "intro": payload.intro,
-            "assistant": payload.assistant.model_dump(),
-            "places": [item.model_dump() for item in payload.places],
-            "map_points": [item.model_dump() for item in payload.map_points],
-        }
-    ).execute()
+    row = {
+        "query": query,
+        "prefer_secondary": payload.prefer_secondary,
+        "intro": payload.intro,
+        "assistant": payload.assistant.model_dump(),
+        "places": [item.model_dump() for item in payload.places],
+        "map_points": [item.model_dump() for item in payload.map_points],
+    }
+    last = db.last_chat_message(chat_id, session_id)
+    if last and str(last.get("query") or "").strip() == query.strip():
+        client.table("messages").update(row).eq("id", last["id"]).execute()
+        return str(last["id"])
+    client.table("messages").insert({"id": payload.message_id, "chat_id": chat_id, **row}).execute()
+    return payload.message_id
 
 
 def _can_explain() -> bool:
@@ -176,18 +187,37 @@ async def search(body: SearchRequest, session_id: str = Depends(require_session)
             matches = []
 
     att_ids = [row["att_id"] for row in matches if row.get("att_id")]
-    listings = {row["att_id"]: row for row in db.fetch_listings_by_ids(att_ids)}
+    try:
+        named = db.name_listings(
+            body.query,
+            region=region,
+            province=body.province,
+            match_count=settings.result_k,
+        )
+    except Exception:
+        named = []
+    named_ids = [row["att_id"] for row in named if row.get("att_id")]
+    listings = {
+        row["att_id"]: row
+        for row in db.fetch_listings_by_ids(list(dict.fromkeys(att_ids + named_ids)))
+    }
     merged: list[dict[str, Any]] = []
-    for match in matches:
-        listing = listings.get(match["att_id"])
+    seen: set[str] = set()
+    for row in named + matches:
+        att_id = row.get("att_id")
+        if not att_id or att_id in seen:
+            continue
+        listing = listings.get(att_id) or (row if row.get("name_th") else None)
         if not listing:
             continue
-        merged.append({**listing, "score_vector": match.get("score_vector") or 0})
+        seen.add(att_id)
+        merged.append({**listing, "score_vector": row.get("score_vector") or 0})
 
     ranked = rerank.sort_candidates(
         merged,
         prefer_secondary=body.prefer_secondary,
         limit=settings.result_k,
+        query=body.query,
     )
     try:
         images = place_mod.load_images([row["att_id"] for row in ranked], session_id)
@@ -203,20 +233,28 @@ async def search(body: SearchRequest, session_id: str = Depends(require_session)
                     row["province"],
                     row.get("type_label"),
                     row.get("detail_clean"),
+                    limit=420 if rewrite.name_hit(body.query, row.get("name_th")) else 180,
                 ),
                 images=images.get(row["att_id"], []),
             )
         )
 
     empty = not built
+    focus_name = next(
+        (row["name_th"] for row in ranked if rewrite.name_hit(body.query, row.get("name_th")) >= 2),
+        None,
+    )
+    chat_id = body.chat_id or str(uuid.uuid4())
+    message_id = str(uuid.uuid4())
     response = _pack_search(
-        chat_id=body.chat_id or str(uuid.uuid4()),
-        message_id=str(uuid.uuid4()),
+        chat_id=chat_id,
+        message_id=message_id,
         intro=_fallback_intro(
             body.query,
             body.prefer_secondary,
             empty,
-            followup=retrieve_text != body.query.strip(),
+            followup=bool(body.chat_id),
+            focus_name=focus_name,
         ),
         assistant=llm.health_assistant(),
         prefer_secondary=body.prefer_secondary,
@@ -226,7 +264,9 @@ async def search(body: SearchRequest, session_id: str = Depends(require_session)
         retrieval_query=retrieve_text,
     )
     try:
-        _save_message(session_id=session_id, chat_id=response.chat_id, query=body.query, payload=response)
+        saved_id = _save_message(session_id=session_id, chat_id=response.chat_id, query=body.query, payload=response)
+        if saved_id != response.message_id:
+            response.message_id = saved_id
     except Exception:
         pass
     return response
@@ -268,21 +308,24 @@ async def explain_message(message_id: str, session_id: str = Depends(require_ses
         item["att_id"]: item
         for item in db.fetch_listings_by_ids([place.att_id for place in places])
     }
+    query_text = str(row.get("query") or "")
     cards = []
     for place in places:
         listing = listings.get(place.att_id) or {}
+        detail = listing.get("detail_clean") or ""
+        clip = 480 if rewrite.name_hit(query_text, place.name_th) else 280
         cards.append(
             {
                 "att_id": place.att_id,
                 "name_th": place.name_th,
                 "province": place.province,
                 "type_label": place.type_label or listing.get("type_label"),
-                "detail_clean": listing.get("detail_clean"),
+                "detail_clean": detail[:clip],
             }
         )
     try:
         intro, whys, assistant_status = await llm.explain_vibe(
-            str(row.get("query") or ""),
+            query_text,
             cards,
             prior=prior,
         )

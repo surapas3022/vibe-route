@@ -205,6 +205,64 @@ def keyword_listings(
     return []
 
 
+def name_listings(
+    query: str,
+    *,
+    region: str,
+    province: str | None,
+    match_count: int,
+) -> list[dict[str, Any]]:
+    from app.rewrite import named_needles
+
+    if not query or not supabase_configured():
+        return []
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    client = get_supabase()
+    for needle in named_needles(query):
+        if len(needle) > 40:
+            continue
+        q = client.table("listings").select("*").eq("region", region)
+        if province:
+            q = q.eq("province", province)
+        result = q.ilike("name_th", f"%{needle}%").limit(match_count).execute()
+        for index, row in enumerate(result.data or []):
+            att_id = row.get("att_id")
+            if not att_id or att_id in seen:
+                continue
+            seen.add(att_id)
+            rows.append({**row, "score_vector": max(0.93, 0.99 - index * 0.01)})
+        if len(rows) >= match_count:
+            break
+    return rows[:match_count]
+
+
+def last_chat_message(chat_id: str, session_id: str) -> dict[str, Any] | None:
+    if not chat_id or not session_id or not supabase_configured():
+        return None
+    client = get_supabase()
+    owned = (
+        client.table("chats")
+        .select("id")
+        .eq("id", chat_id)
+        .eq("session_id", session_id)
+        .limit(1)
+        .execute()
+    )
+    if not owned.data:
+        return None
+    result = (
+        client.table("messages")
+        .select("*")
+        .eq("chat_id", chat_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    rows = result.data or []
+    return rows[0] if rows else None
+
+
 def upsert_listings(rows: list[dict[str, Any]]) -> None:
     if not rows:
         return

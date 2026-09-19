@@ -76,6 +76,7 @@ export type ChatSummary = {
   id: string;
   title: string;
   created_at: string;
+  card_count?: number;
 };
 
 export type ChatTurn = {

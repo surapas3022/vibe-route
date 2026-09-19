@@ -55,8 +55,10 @@ def health_assistant() -> AssistantStatus:
 
 def _system_prompt() -> str:
     return (
-        "You explain why Northern Thailand places match a traveler vibe. "
+        "You explain Northern Thailand places from TAT snippets as if guiding a visitor. "
         "Reply in Thai JSON only: {\"intro\": string, \"places\": [{\"att_id\": string, \"why\": string}]}. "
+        "Intro must answer the LATEST request only. Do not quote or concatenate earlier queries. "
+        "If the latest request names a place, lead with that place and describe being there from the snippet. "
         "Use only the provided snippets. Never invent fees, hours, phone numbers, or coordinates. "
         "Never write numbers for tickets or opening hours."
     )
@@ -83,8 +85,8 @@ def _user_prompt(
         history = "Earlier requests:\n" + "\n".join(f"- {item}" for item in earlier[-4:]) + "\n"
     return (
         f"{history}"
-        f"Latest vibe: {query}\n"
-        f"Places:\n{json.dumps(slim, ensure_ascii=False)}"
+        f"Latest request: {query}\n"
+        f"Places (first card is the one to lead with):\n{json.dumps(slim, ensure_ascii=False)}"
     )
 
 
@@ -239,7 +241,7 @@ async def explain_vibe(
         except (asyncio.TimeoutError, httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
             parsed = None
         if parsed:
-            intro = parsed["intro"] or f"ผลการค้นหาตามมู้ด «{query}» จากฐาน ททท. ภาคเหนือ"
+            intro = parsed["intro"] or f"จากฐาน ททท. ตามคำถาม «{query}»"
             status = ASSISTANT_COPY["fallback"] if used_fallback or index > 0 else ASSISTANT_COPY["ready"]
             return intro, parsed["whys"], status
         used_fallback = True

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, clearAuthSession, getApiBase, hasAuthSession, setApiBase, type AuthUser } from "./api";
+import { api, clearAuthSession, hasAuthSession, type AuthUser } from "./api";
 import { AssistantBar } from "./components/AssistantBar";
 import { AuthScreen } from "./components/AuthScreen";
 import { ChatHistory } from "./components/ChatHistory";
@@ -140,7 +140,6 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   const [historyOpen, setHistoryOpen] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
   const [showScores, setShowScores] = useState(false);
-  const [apiBase, setApiBaseState] = useState("");
   const [lastRequest, setLastRequest] = useState("ยังไม่มีการค้น");
   const [lastResponse, setLastResponse] = useState("ยังไม่มี response");
   const [ratings, setRatings] = useState<Record<string, 1 | -1>>({});
@@ -201,7 +200,6 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   };
 
   useEffect(() => {
-    setApiBaseState(getApiBase());
     void boot();
   }, []);
 
@@ -217,7 +215,7 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     const filterOnly = opts?.prefer !== undefined || opts?.province !== undefined;
     setLoading(true);
     setExplaining(false);
-    setResult(null);
+    if (!filterOnly) setResult(null);
     setQuery(q);
     if (!filterOnly) {
       const pending: ChatTurn = { id: PENDING_TURN, query: q };
@@ -253,7 +251,16 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
       setActiveChatId(res.chat_id);
       setPreferSecondary(res.prefer_secondary);
       setDraft("");
-      setThread((prev) => replacePendingTurn(prev, { id: res.message_id, query: q, intro: res.intro }));
+      setThread((prev) => {
+        const next = { id: res.message_id, query: q, intro: res.intro };
+        if (filterOnly) {
+          if (!prev.length) return [next];
+          const copy = [...prev];
+          copy[copy.length - 1] = { ...copy[copy.length - 1], ...next };
+          return copy;
+        }
+        return replacePendingTurn(prev, next);
+      });
       setLoading(false);
       await refreshChats();
       if (!res.explain_pending) return;
@@ -470,25 +477,23 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     }
   };
 
-  const changeApiBase = (value: string) => {
-    setApiBaseState(value);
-    setApiBase(value);
-    void boot();
-  };
-
   useEffect(() => {
     const el = feedRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [thread, loading, explaining, result?.message_id]);
 
+  const focusedName =
+    result?.places[0] && query.includes(result.places[0].name_th) ? result.places[0].name_th : "";
   const meta = loading
     ? "กำลังค้นในภาคเหนือ"
     : explaining
       ? EXPLAINING_COPY
       : result
         ? result.places.length
-          ? `ใน ${result.places.length} แห่งนี้ เป็นจังหวัดอื่นนอกเชียงใหม่ ${result.secondary_count} แห่ง`
+          ? focusedName
+            ? `${focusedName} จากฐาน ททท. ที่เหลือเป็นที่ใกล้เคียงในมู้ดเดิม`
+            : `ใน ${result.places.length} แห่งนี้ เป็นจังหวัดอื่นนอกเชียงใหม่ ${result.secondary_count} แห่ง`
           : result.message_id
             ? "ไม่มีการ์ดจากฐาน"
             : ""
@@ -541,7 +546,14 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
           <ChatHistory
             chats={chats}
             activeId={activeChatId}
-            onSelect={loadChat}
+            onSelect={(id) => {
+              setHistoryOpen(false);
+              void loadChat(id);
+            }}
+            onNew={() => {
+              setHistoryOpen(false);
+              newChat();
+            }}
             onDelete={(chat) => askConfirm({ kind: "delete-chat", chat })}
             onDeleteAll={() => askConfirm({ kind: "delete-all" })}
           />
@@ -635,12 +647,10 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
       {isAdmin ? (
         <TeamPanel
           open={teamOpen}
-          apiBase={apiBase}
           showScores={showScores}
           lastRequest={lastRequest}
           lastResponse={lastResponse}
           health={health}
-          onApiBase={changeApiBase}
           onShowScores={setShowScores}
         />
       ) : null}

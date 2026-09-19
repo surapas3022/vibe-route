@@ -27,6 +27,28 @@ def test_original_score_kept():
     assert ranked["score_ranked"] == ranked_score(0.8, "เชียงใหม่", "หมู่บ้าน")
 
 
+def test_named_place_outranks_higher_vector_score():
+    winter = {
+        "att_id": "huai",
+        "name_th": "ห้วยจอกหลวง",
+        "province": "แม่ฮ่องสอน",
+        "score_vector": 0.95,
+    }
+    cave = {
+        "att_id": "cave",
+        "name_th": "ถ้ำน้ำบ่อผี",
+        "province": "แม่ฮ่องสอน",
+        "score_vector": 0.61,
+    }
+    ranked = sort_candidates(
+        [winter, cave],
+        prefer_secondary=True,
+        limit=2,
+        query="ถ้ำน้ำบ่อผี มีอะไรบ้าง",
+    )
+    assert ranked[0]["att_id"] == "cave"
+
+
 def test_secondary_count():
     places = [{"province": "น่าน"}, {"province": "เชียงใหม่"}]
     assert secondary_count(places) == 1

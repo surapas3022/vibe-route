@@ -2,23 +2,19 @@ import type { HealthResponse } from "../types";
 
 type Props = {
   open: boolean;
-  apiBase: string;
   showScores: boolean;
   lastRequest: string;
   lastResponse: string;
   health: HealthResponse | null;
-  onApiBase: (value: string) => void;
   onShowScores: (value: boolean) => void;
 };
 
 export function TeamPanel({
   open,
-  apiBase,
   showScores,
   lastRequest,
   lastResponse,
   health,
-  onApiBase,
   onShowScores,
 }: Props) {
   return (
@@ -28,14 +24,6 @@ export function TeamPanel({
         จอหลักห้ามโชว์ชื่อโมเดล HTTP หรือคะแนนเวกเตอร์ ค่าด้านล่างสำหรับดีบักตอนเดโม
       </p>
       <div className="team-grid">
-        <label>
-          API base ตอนรัน
-          <input
-            value={apiBase}
-            placeholder="ว่าง = โดเมนเดียวกับหน้านี้"
-            onChange={(e) => onApiBase(e.target.value)}
-          />
-        </label>
         <label className="toggle">
           <input
             type="checkbox"

@@ -27,6 +27,21 @@ def test_duplicate_followup_is_not_repeated():
     assert text == "สโลว์ไลฟ์ เอาเชียงราย"
 
 
+def test_named_place_followup_does_not_bury_the_place():
+    from app.rewrite import is_specific_place_query, name_hit, retrieval_query as rewrite_query
+
+    assert is_specific_place_query("ถ้ำน้ำบ่อผี มีอะไรบ้าง")
+    assert not is_specific_place_query("อยากไปที่หนาวๆ มีที่ไหนน่าไปบ้าง")
+    text = rewrite_query(
+        "ถ้ำน้ำบ่อผี มีอะไรบ้าง",
+        ["อยากไปที่หนาวๆ มีที่ไหนน่าไปบ้าง", "จะไปแม่ฮ่องสอน ห้วยจอกหลวง"],
+    )
+    assert text == "ถ้ำน้ำบ่อผี มีอะไรบ้าง"
+    assert "หนาว" not in text
+    assert name_hit("ถ้ำน้ำบ่อผี มีอะไรบ้าง", "ถ้ำน้ำบ่อผี") == 2
+    assert name_hit("จะไปแม่ฮ่องสอน ห้วยจอกหลวง", "ห้วยจอกหลวง") == 2
+
+
 def test_fallback_intro_uses_latest_query_on_followup():
     from app.routers.search import _fallback_intro
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.rewrite import name_hit
+
 CHIANG_MAI = "เชียงใหม่"
 
 COMMUNITY_TYPES = (
@@ -36,6 +38,7 @@ def sort_candidates(
     *,
     prefer_secondary: bool,
     limit: int = 6,
+    query: str | None = None,
 ) -> list[dict]:
     prepared = []
     for row in rows:
@@ -45,10 +48,11 @@ def sort_candidates(
             **row,
             "score_vector": vector,
             "score_ranked": ranked if prefer_secondary else vector,
+            "name_hit": name_hit(query or "", row.get("name_th")),
         }
         prepared.append(item)
     key = "score_ranked" if prefer_secondary else "score_vector"
-    prepared.sort(key=lambda item: item[key], reverse=True)
+    prepared.sort(key=lambda item: (item["name_hit"], item[key]), reverse=True)
     return prepared[:limit]
 
 

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
 const LAYOUT_KEY = "viberoute_layout";
-const MIN_HISTORY = 180;
+const MIN_HISTORY = 240;
 const MAX_HISTORY = 360;
 const MIN_MAP = 280;
 const MIN_STAGE = 320;
@@ -38,7 +38,7 @@ export function useColumnResize({ onChange }: Props) {
         mapW: number;
       } | null;
       if (saved) return applyLayout(saved.historyW, saved.mapW);
-      return applyLayout(220, Math.round(shellWidth() * 0.44));
+      return applyLayout(288, Math.round(shellWidth() * 0.44));
     }
 
     function bind(el: HTMLElement | null, kind: "history" | "map") {
