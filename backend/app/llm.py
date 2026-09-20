@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from typing import Any
 
@@ -60,8 +61,13 @@ def _system_prompt() -> str:
         "Reply in Thai JSON only: {\"intro\": string, \"places\": [{\"att_id\": string, \"why\": string}]}. "
         "Intro must answer the LATEST request only. Do not quote or concatenate earlier queries. "
         "If the latest request names a place, lead with that place and describe being there from the snippet. "
-        "Use only the provided snippets. Never invent fees, hours, phone numbers, or coordinates. "
-        "Never write numbers for tickets or opening hours."
+        "Use only the provided snippets for vibe and place description. "
+        "Never invent fees, hours, phone numbers, or coordinates. "
+        "Never write numbers for tickets or opening hours. "
+        "Each place has fee_on_card and hours_on_card for facts already shown on the UI card. "
+        "If the user asks about fees or hours and that flag is true, say to look at the place card below. "
+        "Do not say those details are missing when the flag is true. "
+        "Only say a fact is unspecified when the matching flag is false."
     )
 
 
@@ -77,6 +83,8 @@ def _user_prompt(
             "province": card["province"],
             "type_label": card.get("type_label"),
             "snippet": (card.get("detail_clean") or "")[:280],
+            "fee_on_card": bool(card.get("fee_on_card")),
+            "hours_on_card": bool(card.get("hours_on_card")),
         }
         for card in cards
     ]
@@ -114,6 +122,69 @@ def _parse_payload(raw: str, cards: list[dict[str, Any]]) -> dict[str, Any] | No
         "intro": str(data.get("intro") or "").strip(),
         "whys": {key: str(value).strip() for key, value in by_id.items() if key and value},
     }
+
+
+_MISSING_MARKERS = (
+    "ไม่ได้ระบุ",
+    "ไม่ระบุ",
+    "ไม่มีข้อมูล",
+    "ไม่พบข้อมูล",
+    "ไม่มีรายละเอียด",
+    "ยังไม่มีข้อมูล",
+)
+_FEE_TOPICS = ("ค่าเข้าชม", "ค่าเข้า", "ค่าธรรมเนียม", "ค่าใช้จ่าย", "ตั๋วเข้า")
+_HOURS_TOPICS = (
+    "เวลาเปิด-ปิด",
+    "เวลาเปิดปิด",
+    "เวลาเปิด",
+    "เวลาปิด",
+    "เปิด-ปิดทำการ",
+    "ชั่วโมงทำการ",
+)
+_FEE_POINTER = "สำหรับค่าเข้าชม ดูรายละเอียดได้จากการ์ดด้านล่างค่ะ"
+_HOURS_POINTER = "สำหรับเวลาเปิด-ปิด ดูรายละเอียดได้จากการ์ดด้านล่างค่ะ"
+
+
+def _has_any(text: str, needles: tuple[str, ...]) -> bool:
+    return any(needle in text for needle in needles)
+
+
+def _clause_start_re(topics: tuple[str, ...]) -> re.Pattern[str]:
+    topic = "|".join(re.escape(item) for item in topics)
+    return re.compile(
+        rf"(?:สำหรับ(?:ข้อมูล)?(?:เรื่อง)?(?:{topic})|{topic}|จากข้อมูลที่มีอยู่|จากข้อมูลที่ให้มา)"
+    )
+
+
+def _line_clause(text: str, start: int) -> str:
+    rest = text[start:]
+    newline = rest.find("\n")
+    return rest if newline < 0 else rest[:newline]
+
+
+def _replace_missing_claim(intro: str, topics: tuple[str, ...], pointer: str) -> str:
+    if not _has_any(intro, topics) or not _has_any(intro, _MISSING_MARKERS):
+        return intro
+    for match in _clause_start_re(topics).finditer(intro):
+        clause = _line_clause(intro, match.start())
+        if not _has_any(clause, topics) or not _has_any(clause, _MISSING_MARKERS):
+            continue
+        prefix = intro[: match.start()].rstrip()
+        suffix = intro[match.start() + len(clause) :].lstrip()
+        body = f"{prefix} {pointer}".strip() if prefix else pointer
+        return f"{body} {suffix}".strip() if suffix else body
+    return intro
+
+
+def redirect_facts_to_card(intro: str, cards: list[dict[str, Any]]) -> str:
+    text = (intro or "").strip()
+    if not text:
+        return text
+    if any(card.get("fee_on_card") for card in cards):
+        text = _replace_missing_claim(text, _FEE_TOPICS, _FEE_POINTER)
+    if any(card.get("hours_on_card") for card in cards):
+        text = _replace_missing_claim(text, _HOURS_TOPICS, _HOURS_POINTER)
+    return text
 
 
 async def _nvidia(
@@ -245,6 +316,7 @@ async def explain_vibe(
             parsed = None
         if parsed:
             intro = parsed["intro"] or f"จากฐาน ททท. ตามคำถาม «{query}»"
+            intro = redirect_facts_to_card(intro, cards)
             status = ASSISTANT_COPY["fallback"] if used_fallback or index > 0 else ASSISTANT_COPY["ready"]
             return intro, parsed["whys"], status
         used_fallback = True

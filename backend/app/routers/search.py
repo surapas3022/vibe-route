@@ -398,6 +398,8 @@ async def explain_message(message_id: str, session_id: str = Depends(require_ses
                 "province": place.province,
                 "type_label": place.type_label or listing.get("type_label"),
                 "detail_clean": detail[:clip],
+                "fee_on_card": place.fee.status == "confirmed",
+                "hours_on_card": place.hours.status == "confirmed",
             }
         )
     try:
