@@ -277,9 +277,9 @@
             <div class="chips" data-component="DemoChips">
               <button type="button" data-q="อยากไปที่เงียบๆ สโลว์ไลฟ์ หลีกหนีความวุ่นวาย">สโลว์ไลฟ์ เงียบ</button>
               <button type="button" data-q="พาเด็กเที่ยวชุมชน ไม่ใช่วัดดังในเชียงใหม่">ชุมชน ไม่ใช่วัดดังเชียงใหม่</button>
-              <button type="button" data-q="เมืองเก่าอุทัยธานี ค่าเข้าชม">ไม่มีค่าเข้าชมในฐาน</button>
-              <button type="button" data-q="คุ้มเจ้าบุรีรัตน์ ค่าเข้าชม">มีค่าเข้าชม 60 บาท</button>
-              <button type="button" data-q="ทะเลภูเก็ต">ผลว่าง (นอกภาค)</button>
+              <button type="button" data-q="เมืองเก่า ค่าเข้าชม">ไม่มีค่าเข้าชมในฐาน</button>
+              <button type="button" data-q="ศูนย์สถาปัตยกรรมล้านนา ค่าเข้าชม">มีค่าเข้าชม</button>
+              <button type="button" data-q="อยากดำน้ำดูปะการัง">ผลว่าง (นอกภาค)</button>
             </div>
           </div>
           <p class="intro" id="intro" hidden></p>
@@ -495,7 +495,7 @@
 
     function mockSearch({ query, region, province, prefer_secondary, chat_id }) {
       const assistantKey = document.getElementById("sim-assistant").value;
-      if (/ทะเล|ภูเก็ต|พัทยา/i.test(query)) {
+      if (/ทะเล|ภูเก็ต|พัทยา|ปะการัง|ดำน้ำ/i.test(query)) {
         return {
           chat_id: chat_id || crypto.randomUUID(),
           message_id: crypto.randomUUID(),
@@ -647,8 +647,8 @@
     function seedHistory() {
       const samples = [
         "พาเด็กเที่ยวชุมชน ไม่ใช่วัดดังในเชียงใหม่",
-        "เมืองเก่าอุทัยธานี ค่าเข้าชม",
-        "ทะเลภูเก็ต"
+        "เมืองเก่า ค่าเข้าชม",
+        "อยากดำน้ำดูปะการัง"
       ];
       samples.forEach((query) => {
         const res = mockSearch({
