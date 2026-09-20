@@ -68,6 +68,11 @@ function nearbyCacheKey(attId: string, km: number): string {
   return `${attId}:${km}`;
 }
 
+function listedById(places: Place[], attId: string | null | undefined): Place | undefined {
+  if (!attId) return undefined;
+  return places.find((item) => item.att_id === attId);
+}
+
 function replacePendingTurn(turns: ChatTurn[], next: ChatTurn): ChatTurn[] {
   const withoutPending = turns.filter((turn) => turn.id !== PENDING_TURN);
   if (withoutPending.some((turn) => turn.id === next.id)) {
@@ -271,18 +276,18 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   for (const item of nearbyPlaces) knownPlaces.current.set(item.att_id, item);
   const anchorPlace =
     (focusAttId && focusAttId === planOrigin?.att_id ? planOrigin : null) ||
-    resultPlaces.find((item) => item.att_id === focusAttId) ||
-    nearbyPlaces.find((item) => item.att_id === focusAttId) ||
+    listedById(resultPlaces, focusAttId) ||
+    listedById(nearbyPlaces, focusAttId) ||
     (focusAttId ? knownPlaces.current.get(focusAttId) || null : null) ||
     planOrigin ||
-    resultPlaces[0] ||
     null;
   useEffect(() => {
     nearbyEpoch.current += 1;
     nearbyCache.current.clear();
     nearbyInflight.current.clear();
     knownPlaces.current.clear();
-    setPlanOrigin(result?.places[0] ?? null);
+    setPlanOrigin(null);
+    setFocusAttId(null);
     setNearbyKm(NEARBY_KM);
   }, [result?.message_id]);
 
@@ -947,20 +952,30 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
                               : undefined
                           }
                           focused={focusAttId === place.att_id}
-                          onFocus={() => setFocusAttId(place.att_id)}
+                          onFocus={() => {
+                            setFocusAttId(place.att_id);
+                            setPlanOrigin(place);
+                          }}
                           onOpen={() => {
                             setOpenAttId(place.att_id);
                             setFocusAttId(place.att_id);
+                            setPlanOrigin(place);
                           }}
                         />
                       ))}
                 </div>
               </details>
             ) : null}
-            {!loading && anchorPlace ? (
+            {!loading && resultPlaces.length > 0 && !planOrigin ? (
+              <p className="plan-prompt">
+                กดเลือกที่เที่ยวจาก {resultPlaces.length} รายการด้านบน เพื่อตั้งเป็นฐาน
+                แล้วระบบจะแนะนำจุดใกล้ๆ
+              </p>
+            ) : null}
+            {!loading && planOrigin ? (
               <NextSteps
-                place={anchorPlace}
-                origin={planOrigin || undefined}
+                place={anchorPlace || planOrigin}
+                origin={planOrigin}
                 nearby={nearbyPlaces}
                 nearbyLoading={nearbyLoading}
                 nearbyKm={nearbyKm}
@@ -985,7 +1000,7 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
             onQuery={setDraft}
             onSubmit={() => void search(draft, { fresh: false })}
             suggestions={
-              anchorPlace
+              resultPlaces.length || planOrigin
                 ? []
                 : thread.length || result || loading
                   ? (suggest?.queries.length
@@ -997,7 +1012,7 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
               suggest?.queries.length ? `คนค้นใน${suggest.region || region}` : "คำค้นหายอดนิยม"
             }
             onSuggest={(text) => void search(text, { fresh: true })}
-            nextSteps={anchorPlace ? nextStepSearches(anchorPlace) : []}
+            nextSteps={planOrigin ? nextStepSearches(anchorPlace || planOrigin) : []}
             onNextStep={(text) => void search(text, { fresh: false })}
           />
         </section>
@@ -1019,10 +1034,15 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
           radiusKm={planOrigin ? nearbyKm : null}
           viewKey={result?.message_id}
           onSelect={(attId) => {
+            const listed = listedById(resultPlaces, attId);
+            if (listed) {
+              setFocusAttId(listed.att_id);
+              setPlanOrigin(listed);
+              return;
+            }
             const place =
               (planOrigin?.att_id === attId ? planOrigin : null) ||
-              resultPlaces.find((item) => item.att_id === attId) ||
-              nearbyPlaces.find((item) => item.att_id === attId) ||
+              listedById(nearbyPlaces, attId) ||
               knownPlaces.current.get(attId);
             if (!place) return;
             setFocusAttId(place.att_id);
