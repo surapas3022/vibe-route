@@ -1,8 +1,10 @@
 import type { ChatSummary } from "../types";
+import { Skeleton } from "./Skeleton";
 
 type Props = {
   chats: ChatSummary[];
   activeId: string | null;
+  loadingId?: string | null;
   onSelect: (id: string) => void;
   onNew: () => void;
   onDelete: (chat: ChatSummary) => void;
@@ -39,7 +41,7 @@ function ChatIcon() {
   );
 }
 
-export function ChatHistory({ chats, activeId, onSelect, onNew, onDelete, onDeleteAll }: Props) {
+export function ChatHistory({ chats, activeId, loadingId, onSelect, onNew, onDelete, onDeleteAll }: Props) {
   return (
     <aside className="history" data-component="ChatHistory">
       <div className="history-head">
@@ -61,12 +63,17 @@ export function ChatHistory({ chats, activeId, onSelect, onNew, onDelete, onDele
               <li key={chat.id} className="history-item">
                 <button
                   type="button"
-                  className="history-open"
+                  className={chat.id === loadingId ? "history-open is-loading" : "history-open"}
                   aria-current={chat.id === activeId ? "true" : undefined}
+                  aria-busy={chat.id === loadingId ? true : undefined}
                   onClick={() => onSelect(chat.id)}
                 >
                   <span className="history-title">
-                    <ChatIcon />
+                    {chat.id === loadingId ? (
+                      <Skeleton className="history-icon" width={13} height={13} />
+                    ) : (
+                      <ChatIcon />
+                    )}
                     <span>{chat.title || "แชท"}</span>
                   </span>
                   <span className="history-meta">

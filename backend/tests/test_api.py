@@ -38,6 +38,11 @@ def test_explain_requires_auth():
     assert response.status_code == 401
 
 
+def test_nearby_places_requires_auth():
+    response = client.get("/v1/places/A1/nearby")
+    assert response.status_code == 401
+
+
 def test_register_rejects_password_mismatch():
     response = client.post(
         "/v1/auth/register",

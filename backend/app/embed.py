@@ -7,6 +7,7 @@ from collections import defaultdict
 import httpx
 
 from app.config import get_settings
+from app.privacy import mask_query
 
 NVIDIA_EMBED_URL = "https://integrate.api.nvidia.com/v1/embeddings"
 GEMINI_EMBED_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent"
@@ -121,12 +122,19 @@ def _handle_status(provider: str, key: str, status: int, body: str, attempt: int
     return None
 
 
+def _texts_for_task(texts: list[str], task_type: str) -> list[str]:
+    if _input_type(task_type) == "query":
+        return [mask_query(text) for text in texts]
+    return texts
+
+
 async def embed_nvidia_texts(
     texts: list[str],
     *,
     task_type: str,
     quick: bool = False,
 ) -> list[list[float]]:
+    texts = _texts_for_task(texts, task_type)
     if not texts:
         return []
     settings = get_settings()
@@ -180,6 +188,7 @@ async def embed_gemini_texts(
     task_type: str,
     quick: bool = False,
 ) -> list[list[float]]:
+    texts = _texts_for_task(texts, task_type)
     if not texts:
         return []
     settings = get_settings()
@@ -229,6 +238,7 @@ async def embed_nvidia_text(text: str, *, task_type: str, quick: bool = False) -
 
 
 async def embed_gemini_text(text: str, *, task_type: str, quick: bool = False) -> list[float]:
+    text = mask_query(text) if _input_type(task_type) == "query" else text
     settings = get_settings()
     if not settings.gemini_key_list:
         raise EmbedError("GEMINI_API_KEY is missing")

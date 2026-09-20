@@ -11,6 +11,8 @@ HOUR_PLACEHOLDERS = {
 }
 
 TEL_PLACEHOLDERS = {"", "-", "0"}
+URL_PLACEHOLDERS = {"", "-", "n/a", "N/A"}
+_UNSAFE_URL = re.compile(r"^(javascript|data|vbscript|file):", re.I)
 
 
 def _blank(value: object) -> bool:
@@ -104,3 +106,26 @@ def clean_text(raw: object) -> str | None:
         return None
     text = str(raw).strip()
     return text or None
+
+
+def external_url(raw: object, *, kind: str | None = None) -> str | None:
+    """Turn TAT website/facebook values into absolute http(s) URLs.
+
+    Bare hosts like ``www.example.com`` are relative in ``<a href>`` and
+    navigate back to this app instead of the place site.
+    """
+    text = clean_text(raw)
+    if not text or text in URL_PLACEHOLDERS:
+        return None
+    if _UNSAFE_URL.match(text):
+        return None
+    if re.match(r"^https?://", text, re.I):
+        return text
+    if text.startswith("//"):
+        return "https:" + text
+    if kind == "facebook":
+        lower = text.lower()
+        if "facebook." not in lower and "fb.com" not in lower and "." not in text and "/" not in text:
+            handle = text.lstrip("@")
+            return f"https://www.facebook.com/{handle}" if handle else None
+    return "https://" + text

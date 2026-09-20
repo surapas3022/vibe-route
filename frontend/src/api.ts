@@ -38,6 +38,60 @@ function getRefreshToken(): string {
 }
 
 const USER_KEY = "viberoute_user";
+const ACTIVE_CHAT_KEY = "viberoute_active_chat";
+const CHAT_PARAM = "chat";
+
+function activeChatStorageKey(userId: string): string {
+  return `${ACTIVE_CHAT_KEY}:${userId}`;
+}
+
+export function chatIdFromLocation(href = window.location.href): string | null {
+  try {
+    const id = new URL(href).searchParams.get(CHAT_PARAM)?.trim() || "";
+    return id || null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeChatToLocation(chatId: string | null): void {
+  try {
+    const url = new URL(window.location.href);
+    if (chatId) url.searchParams.set(CHAT_PARAM, chatId);
+    else url.searchParams.delete(CHAT_PARAM);
+    const next = `${url.pathname}${url.search}${url.hash}`;
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (next !== current) window.history.replaceState(null, "", next);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function getSavedActiveChatId(userId: string): string | null {
+  if (!userId) return null;
+  try {
+    const id = (localStorage.getItem(activeChatStorageKey(userId)) || "").trim();
+    return id || null;
+  } catch {
+    return null;
+  }
+}
+
+export function readRememberedChatId(userId: string): string | null {
+  return chatIdFromLocation() || getSavedActiveChatId(userId);
+}
+
+export function saveActiveChatId(userId: string, chatId: string | null): void {
+  if (!userId) return;
+  try {
+    const key = activeChatStorageKey(userId);
+    if (!chatId) localStorage.removeItem(key);
+    else localStorage.setItem(key, chatId);
+  } catch {
+    /* private mode / quota */
+  }
+  writeChatToLocation(chatId);
+}
 
 export function cacheUser(user: AuthUser): void {
   localStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -296,6 +350,10 @@ export const api = {
     prefer_secondary: boolean;
     chat_id?: string | null;
   }) => json<import("./types").SearchResponse>("/v1/search", "POST", body),
+  nearby: (attId: string, km = 20) =>
+    request<import("./types").NearbyResponse>(
+      "/v1/places/" + encodeURIComponent(attId) + "/nearby?km=" + encodeURIComponent(String(km)),
+    ),
   explain: (messageId: string) =>
     request<import("./types").SearchResponse>(
       "/v1/messages/" + encodeURIComponent(messageId) + "/explain",

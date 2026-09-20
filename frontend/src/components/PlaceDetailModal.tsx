@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CHIANG_MAI, type Place, type PlaceImage } from "../types";
+import { CHIANG_MAI, NEARBY_KM, externalHref, type NearbyKm, type Place, type PlaceImage } from "../types";
 import { BaseModal } from "./BaseModal";
 import { NextSteps } from "./NextSteps";
 
@@ -12,6 +12,12 @@ type Props = {
   onFavorite: (imageId: string) => void;
   onDelete: (imageId: string) => void;
   onNext: (query: string) => void;
+  onKmChange?: (km: NearbyKm) => void;
+  onFocusPlace?: (place: Place) => void;
+  origin?: Place;
+  nearby?: Place[];
+  nearbyLoading?: boolean;
+  nearbyKm?: number;
   uploading?: boolean;
 };
 
@@ -39,6 +45,12 @@ export function PlaceDetailModal({
   onFavorite,
   onDelete,
   onNext,
+  onKmChange,
+  onFocusPlace,
+  origin,
+  nearby,
+  nearbyLoading,
+  nearbyKm = NEARBY_KM,
   uploading,
 }: Props) {
   const [viewingId, setViewingId] = useState<string | null>(null);
@@ -56,6 +68,8 @@ export function PlaceDetailModal({
     place.lat != null && place.lng != null
       ? `https://www.openstreetmap.org/?mlat=${place.lat}&mlon=${place.lng}#map=15/${place.lat}/${place.lng}`
       : null;
+  const websiteHref = externalHref(place.website);
+  const facebookHref = externalHref(place.facebook, "facebook");
   const location = [place.province, place.district].filter(Boolean).join(" · ");
 
   return (
@@ -134,21 +148,21 @@ export function PlaceDetailModal({
                 <dd>{place.limitation}</dd>
               </div>
             ) : null}
-            {place.website ? (
+            {websiteHref ? (
               <div>
                 <dt>เว็บไซต์</dt>
                 <dd>
-                  <a href={place.website} target="_blank" rel="noreferrer">
+                  <a href={websiteHref} target="_blank" rel="noreferrer">
                     {place.website}
                   </a>
                 </dd>
               </div>
             ) : null}
-            {place.facebook ? (
+            {facebookHref ? (
               <div>
                 <dt>Facebook</dt>
                 <dd>
-                  <a href={place.facebook} target="_blank" rel="noreferrer">
+                  <a href={facebookHref} target="_blank" rel="noreferrer">
                     {place.facebook}
                   </a>
                 </dd>
@@ -166,7 +180,17 @@ export function PlaceDetailModal({
             ) : null}
           </dl>
           {callLine ? <p className="badge-unknown">{callLine}</p> : null}
-          <NextSteps compact place={place} onPick={onNext} />
+          <NextSteps
+            compact
+            place={place}
+            origin={origin}
+            nearby={nearby}
+            nearbyLoading={nearbyLoading}
+            nearbyKm={nearbyKm}
+            onPick={onNext}
+            onKmChange={onKmChange}
+            onFocus={onFocusPlace}
+          />
           {place.images.length || uploading ? (
             <section>
               <h3>รูปจากนักท่องเที่ยว</h3>

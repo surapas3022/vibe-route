@@ -22,3 +22,17 @@ def test_pack_chat_summaries_empty_messages():
     packed = pack_chat_summaries(chats, [])
     assert packed[0]["card_count"] == 0
     assert packed[0]["created_at"] == "2026-09-19T08:00:00Z"
+
+
+def test_pack_chat_summaries_masks_title_pii():
+    chats = [
+        {
+            "id": "c1",
+            "title": "ไปเชียงใหม่ โทร 0812345678",
+            "created_at": "2026-09-19T08:00:00Z",
+        }
+    ]
+    packed = pack_chat_summaries(chats, [])
+    assert "0812345678" not in packed[0]["title"]
+    assert "เชียงใหม่" in packed[0]["title"]
+    assert "***" in packed[0]["title"]

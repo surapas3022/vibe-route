@@ -32,3 +32,9 @@ def test_prepare_keeps_active_north():
 
 def test_prepare_skips_other_region():
     assert prepare_row(_base(REGION_NAME_TH="ภาคอีสาน"), "ภาคเหนือ") is None
+
+
+def test_prepare_absolutizes_website_without_scheme():
+    row = prepare_row(_base(ATT_WEBSITE="www.homestaybaanklang.test"), "ภาคเหนือ")
+    assert row is not None
+    assert row["website"] == "https://www.homestaybaanklang.test"

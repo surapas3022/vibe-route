@@ -4,8 +4,11 @@ import {
   cacheUser,
   clearAuthSession,
   getCachedUser,
+  chatIdFromLocation,
   hasAuthSession,
   isWakeError,
+  readRememberedChatId,
+  saveActiveChatId,
   type AuthUser,
 } from "./api";
 import { AssistantBar } from "./components/AssistantBar";
@@ -18,6 +21,7 @@ import { NextSteps } from "./components/NextSteps";
 import { PlaceCard } from "./components/PlaceCard";
 import { PlaceDetailModal } from "./components/PlaceDetailModal";
 import { PlaceMap } from "./components/PlaceMap";
+import { SkeletonCards, SkeletonThread } from "./components/Skeleton";
 import { TeamPanel } from "./components/TeamPanel";
 import { VibeComposer } from "./components/VibeComposer";
 import { useColumnResize } from "./hooks/useColumnResize";
@@ -28,16 +32,33 @@ import {
   POPULAR_SEARCHES,
   EXPLAINING_COPY,
   LOADING_COPY,
+  NEARBY_KM,
+  OPENING_CHAT_COPY,
+  maskQuery,
   nextStepSearches,
+  placeBlurb,
   type AssistantStatus,
   type ChatSummary,
   type ChatTurn,
   type HealthResponse,
+  type MapPoint,
+  type NearbyKm,
   type Place,
   type SearchResponse,
 } from "./types";
 
 const PENDING_TURN = "pending";
+
+function maskLoggedQuery(req: unknown): unknown {
+  if (!req || typeof req !== "object") return req;
+  const row = req as { body?: { query?: unknown } };
+  if (!row.body || typeof row.body !== "object" || typeof row.body.query !== "string") return req;
+  return { ...row, body: { ...row.body, query: maskQuery(row.body.query) } };
+}
+
+function nearbyCacheKey(attId: string, km: number): string {
+  return `${attId}:${km}`;
+}
 
 function replacePendingTurn(turns: ChatTurn[], next: ChatTurn): ChatTurn[] {
   const withoutPending = turns.filter((turn) => turn.id !== PENDING_TURN);
@@ -59,6 +80,45 @@ function mergePlaceImages(fromApi: Place[], fromCurrent: Place[] | undefined): P
     const images = [...byId.values()].map((img, index) => ({ ...img, is_cover: index === 0 }));
     return { ...place, images };
   });
+}
+
+function mergeMapPoints(base: MapPoint[], origin: Place | null, nearby: Place[]): MapPoint[] {
+  const points: MapPoint[] = [];
+  const seen = new Set<string>();
+  const push = (pt: MapPoint) => {
+    if (seen.has(pt.att_id)) return;
+    seen.add(pt.att_id);
+    points.push(pt);
+  };
+  if (origin && origin.lat != null && origin.lng != null) {
+    push({
+      att_id: origin.att_id,
+      name_th: origin.name_th,
+      lat: origin.lat,
+      lng: origin.lng,
+      kind: "origin",
+      type_label: origin.type_label,
+      blurb: placeBlurb(origin, 90),
+    });
+  }
+  for (const place of nearby) {
+    if (!origin || place.att_id === origin.att_id || place.lat == null || place.lng == null) continue;
+    push({
+      att_id: place.att_id,
+      name_th: place.name_th,
+      lat: place.lat,
+      lng: place.lng,
+      kind: "nearby",
+      distance_km: place.distance_km,
+      type_label: place.type_label,
+      blurb: placeBlurb(place, 90),
+    });
+  }
+  for (const pt of base) {
+    if (pt.lat == null || pt.lng == null) continue;
+    push({ ...pt, kind: pt.kind || "result" });
+  }
+  return points;
 }
 
 const FALLBACK_ASSISTANT: AssistantStatus = {
@@ -164,10 +224,11 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [thread, setThread] = useState<ChatTurn[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [activeChatId, setActiveChatId] = useState<string | null>(() => readRememberedChatId(user.id));
+  const [loading, setLoading] = useState(() => Boolean(readRememberedChatId(user.id)));
+  const [openingChat, setOpeningChat] = useState(() => Boolean(readRememberedChatId(user.id)));
   const [explaining, setExplaining] = useState(false);
   const [result, setResult] = useState<SearchResponse | null>(null);
-  const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
   const [showScores, setShowScores] = useState(false);
@@ -178,6 +239,11 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   const uploadAttId = useRef<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const searchGen = useRef(0);
+  const nearbyGen = useRef(0);
+  const nearbyEpoch = useRef(0);
+  const nearbyCache = useRef(new Map<string, Place[]>());
+  const nearbyInflight = useRef(new Map<string, Promise<Place[]>>());
+  const knownPlaces = useRef(new Map<string, Place>());
   const feedRef = useRef<HTMLDivElement>(null);
   const isAdmin = user.role === "admin";
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
@@ -185,25 +251,107 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   const [confirmError, setConfirmError] = useState("");
   const [openAttId, setOpenAttId] = useState<string | null>(null);
   const [focusAttId, setFocusAttId] = useState<string | null>(null);
+  const [planOrigin, setPlanOrigin] = useState<Place | null>(null);
+  const [nearbyPlaces, setNearbyPlaces] = useState<Place[]>([]);
+  const [nearbyKm, setNearbyKm] = useState<NearbyKm>(NEARBY_KM);
+  const [nearbyLoading, setNearbyLoading] = useState(false);
   const [uploadingAttId, setUploadingAttId] = useState<string | null>(null);
   const resultPlaces = result?.places || [];
+  if (planOrigin) knownPlaces.current.set(planOrigin.att_id, planOrigin);
+  for (const item of resultPlaces) knownPlaces.current.set(item.att_id, item);
+  for (const item of nearbyPlaces) knownPlaces.current.set(item.att_id, item);
   const anchorPlace =
-    resultPlaces.find((item) => item.att_id === focusAttId) || resultPlaces[0] || null;
+    (focusAttId && focusAttId === planOrigin?.att_id ? planOrigin : null) ||
+    resultPlaces.find((item) => item.att_id === focusAttId) ||
+    nearbyPlaces.find((item) => item.att_id === focusAttId) ||
+    (focusAttId ? knownPlaces.current.get(focusAttId) || null : null) ||
+    planOrigin ||
+    resultPlaces[0] ||
+    null;
+  useEffect(() => {
+    nearbyEpoch.current += 1;
+    nearbyCache.current.clear();
+    nearbyInflight.current.clear();
+    knownPlaces.current.clear();
+    setPlanOrigin(result?.places[0] ?? null);
+    setNearbyKm(NEARBY_KM);
+  }, [result?.message_id]);
+
+  useEffect(() => {
+    if (!planOrigin) {
+      nearbyGen.current += 1;
+      setNearbyPlaces([]);
+      setNearbyLoading(false);
+      return;
+    }
+    if (planOrigin.lat == null || planOrigin.lng == null) {
+      nearbyGen.current += 1;
+      setNearbyPlaces([]);
+      setNearbyLoading(false);
+      return;
+    }
+    const key = nearbyCacheKey(planOrigin.att_id, nearbyKm);
+    const cached = nearbyCache.current.get(key);
+    const gen = ++nearbyGen.current;
+    if (cached) {
+      setNearbyPlaces(cached);
+      setNearbyLoading(false);
+      return;
+    }
+    setNearbyLoading(true);
+    const epoch = nearbyEpoch.current;
+    let pending = nearbyInflight.current.get(key);
+    if (!pending) {
+      pending = api
+        .nearby(planOrigin.att_id, nearbyKm)
+        .then((res) => {
+          const places = res.places || [];
+          if (epoch === nearbyEpoch.current) nearbyCache.current.set(key, places);
+          return places;
+        })
+        .finally(() => {
+          nearbyInflight.current.delete(key);
+        });
+      nearbyInflight.current.set(key, pending);
+    }
+    void pending
+      .then((places) => {
+        if (gen !== nearbyGen.current) return;
+        setNearbyPlaces(places);
+      })
+      .catch(() => {
+        if (gen !== nearbyGen.current) return;
+        setNearbyPlaces([]);
+      })
+      .finally(() => {
+        if (gen !== nearbyGen.current) return;
+        setNearbyLoading(false);
+      });
+  }, [planOrigin?.att_id, nearbyKm]);
 
   const bumpLayout = useCallback(() => setLayoutTick((n) => n + 1), []);
   useColumnResize({ onChange: bumpLayout });
+  const loadChatRef = useRef<(id: string) => Promise<void>>(async () => {});
+
+  const rememberChat = (id: string | null) => {
+    setActiveChatId(id);
+    saveActiveChatId(user.id, id);
+  };
 
   const logTeam = (req: unknown, res: unknown) => {
-    setLastRequest(JSON.stringify(req, null, 2));
+    setLastRequest(JSON.stringify(maskLoggedQuery(req), null, 2));
     setLastResponse(JSON.stringify(res, null, 2));
   };
 
   const refreshChats = async () => {
     try {
       const data = await api.chats();
-      setChats(data.chats || []);
+      const list = data.chats || [];
+      setChats(list);
+      return { ok: true as const, chats: list };
     } catch {
       setChats([]);
+      return { ok: false as const, chats: [] as ChatSummary[] };
     }
   };
 
@@ -220,6 +368,9 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   };
 
   const boot = async () => {
+    const genAtStart = searchGen.current;
+    const saved = readRememberedChatId(user.id);
+    if (saved) saveActiveChatId(user.id, saved);
     try {
       const h = await api.health();
       setHealth(h);
@@ -233,7 +384,17 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
       });
     }
     await loadProvinces(region);
-    await refreshChats();
+    const { ok, chats: list } = await refreshChats();
+    if (genAtStart !== searchGen.current) return;
+    const current = readRememberedChatId(user.id);
+    if (!current) return;
+    if (ok && !list.some((chat) => chat.id === current)) {
+      rememberChat(null);
+      setLoading(false);
+      setOpeningChat(false);
+      return;
+    }
+    await loadChatRef.current(current);
   };
 
   useEffect(() => {
@@ -244,13 +405,14 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     text: string,
     opts?: { fresh?: boolean; prefer?: boolean; province?: string },
   ) => {
-    const q = text.trim();
+    const q = maskQuery(text.trim());
     if (!q) return;
     const prefer = opts?.prefer ?? preferSecondary;
     const nextProvince = opts?.province ?? province;
     const gen = ++searchGen.current;
     const filterOnly = opts?.prefer !== undefined || opts?.province !== undefined;
     setLoading(true);
+    setOpeningChat(false);
     setExplaining(false);
     setFocusAttId(null);
     setOpenAttId(null);
@@ -287,7 +449,7 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
       logTeam(req, res);
       setResult(res);
       setAssistant(res.assistant);
-      setActiveChatId(res.chat_id);
+      rememberChat(res.chat_id);
       setPreferSecondary(res.prefer_secondary);
       setDraft("");
       setThread((prev) => {
@@ -364,14 +526,20 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   };
 
   const loadChat = async (id: string) => {
-    searchGen.current += 1;
-    setLoading(false);
+    const gen = ++searchGen.current;
+    setOpeningChat(true);
+    setLoading(true);
     setExplaining(false);
+    rememberChat(id);
+    setResult(null);
+    setThread([]);
+    setOpenAttId(null);
+    setFocusAttId(null);
     try {
       const data = await api.chat(id);
+      if (gen !== searchGen.current) return;
       const last = data.messages[data.messages.length - 1];
       if (!last) return;
-      setActiveChatId(data.id);
       setQuery(last.query);
       setDraft("");
       setThread(
@@ -394,23 +562,43 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
       };
       setResult(packed);
       setAssistant(last.assistant);
-      setLoading(false);
-      setExplaining(false);
     } catch (err) {
+      if (gen !== searchGen.current) return;
       logTeam({ path: "/v1/chats/" + id }, { error: err instanceof Error ? err.message : "ไม่พบแชท" });
+    } finally {
+      if (gen === searchGen.current) {
+        setLoading(false);
+        setOpeningChat(false);
+      }
     }
   };
 
+  loadChatRef.current = loadChat;
+
   const newChat = () => {
     searchGen.current += 1;
-    setActiveChatId(null);
+    rememberChat(null);
     setResult(null);
     setQuery("");
     setDraft("");
     setThread([]);
     setLoading(false);
+    setOpeningChat(false);
     setExplaining(false);
   };
+
+  useEffect(() => {
+    const onPop = () => {
+      const id = chatIdFromLocation();
+      if (id) {
+        void loadChatRef.current(id);
+        return;
+      }
+      newChat();
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   const askConfirm = (action: ConfirmAction) => {
     setConfirmError("");
@@ -489,14 +677,18 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     if (!result) return;
     try {
       const updated = await api.favoriteImage(imageId);
-      setResult({
-        ...result,
-        places: result.places.map((item) =>
+      const patch = (places: Place[]) =>
+        places.map((item) =>
           item.att_id !== place.att_id
             ? item
             : { ...item, images: item.images.map((img) => (img.id === updated.id ? updated : img)) },
-        ),
+        );
+      setResult({
+        ...result,
+        places: patch(result.places),
       });
+      setNearbyPlaces((prev) => patch(prev));
+      setPlanOrigin((current) => (current ? patch([current])[0] : current));
     } catch (err) {
       logTeam({ path: "/v1/images/" + imageId + "/favorite" }, { error: err instanceof Error ? err.message : "ไม่สำเร็จ" });
     }
@@ -554,8 +746,13 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
 
   const focusedName =
     result?.places[0] && query.includes(result.places[0].name_th) ? result.places[0].name_th : "";
+  const skeletonCount = openingChat
+    ? chats.find((chat) => chat.id === activeChatId)?.card_count || 6
+    : 6;
   const meta = loading
-    ? "กำลังค้นในภาคเหนือ"
+    ? openingChat
+      ? OPENING_CHAT_COPY
+      : "กำลังค้นในภาคเหนือ"
     : explaining
       ? EXPLAINING_COPY
       : result
@@ -568,7 +765,9 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
             : ""
         : "";
   const barAssistant = loading
-    ? { ...assistant, label: "กำลังค้น", detail: LOADING_COPY }
+    ? openingChat
+      ? { ...assistant, label: "กำลังเปิดแชท", detail: OPENING_CHAT_COPY }
+      : { ...assistant, label: "กำลังค้น", detail: LOADING_COPY }
     : explaining
       ? { ...assistant, label: "กำลังอธิบายมู้ด", detail: EXPLAINING_COPY }
       : assistant;
@@ -612,6 +811,7 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
           <ChatHistory
             chats={chats}
             activeId={activeChatId}
+            loadingId={openingChat ? activeChatId : null}
             onSelect={(id) => {
               setHistoryOpen(false);
               void loadChat(id);
@@ -671,29 +871,26 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
               </div>
             ) : null}
             <ChatThread turns={thread} />
+            {loading && openingChat ? <SkeletonThread /> : null}
             {meta ? <p className="meta">{meta}</p> : null}
             {loading || (result && result.places.length > 0) ? (
-              <details className="cards-fold" open key={result?.message_id || "loading"}>
+              <details
+                className="cards-fold"
+                open
+                key={result?.message_id || "loading"}
+                aria-busy={loading ? true : undefined}
+              >
                 <summary className="cards-head">
                   <h2>
-                    {loading ? "6" : result?.places.length} recommended vibe places
+                    {loading ? skeletonCount : result?.places.length} recommended vibe places
                     <span> ( {region} )</span>
                   </h2>
                   <p>Limit: 6 cards strictly</p>
                 </summary>
                 <div className="cards">
-                  {loading
-                    ? Array.from({ length: 6 }, (_, index) => (
-                        <article key={index} className="card skeleton" aria-hidden>
-                          <div className="cover" />
-                          <div className="card-body">
-                            <div className="sk sk-title" />
-                            <div className="sk sk-line" />
-                            <div className="sk sk-line" />
-                          </div>
-                        </article>
-                      ))
-                    : (result?.places || []).map((place, index) => (
+                  {loading ? (
+                    <SkeletonCards count={skeletonCount} />
+                  ) : (result?.places || []).map((place, index) => (
                         <PlaceCard
                           key={place.att_id}
                           place={place}
@@ -714,10 +911,14 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
                               : undefined
                           }
                           focused={focusAttId === place.att_id}
-                          onFocus={() => setFocusAttId(place.att_id)}
+                          onFocus={() => {
+                            setFocusAttId(place.att_id);
+                            setPlanOrigin(place);
+                          }}
                           onOpen={() => {
                             setOpenAttId(place.att_id);
                             setFocusAttId(place.att_id);
+                            setPlanOrigin(place);
                           }}
                         />
                       ))}
@@ -727,9 +928,21 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
             {!loading && anchorPlace ? (
               <NextSteps
                 place={anchorPlace}
-                places={resultPlaces}
+                origin={planOrigin || undefined}
+                nearby={nearbyPlaces}
+                nearbyLoading={nearbyLoading}
+                nearbyKm={nearbyKm}
                 onPick={(text) => void search(text, { fresh: false })}
-                onFocus={setFocusAttId}
+                onKmChange={setNearbyKm}
+                onFocus={(stop) => {
+                  setFocusAttId(stop.att_id);
+                  setPlanOrigin(stop);
+                }}
+                onOpen={(stop) => {
+                  setFocusAttId(stop.att_id);
+                  setPlanOrigin(stop);
+                  setOpenAttId(stop.att_id);
+                }}
               />
             ) : null}
           </div>
@@ -756,9 +969,22 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
         />
 
         <PlaceMap
-          points={result?.map_points || []}
+          points={mergeMapPoints(result?.map_points || [], planOrigin, nearbyPlaces)}
           layoutTick={layoutTick}
           focusId={focusAttId}
+          originId={planOrigin?.att_id}
+          radiusKm={planOrigin ? nearbyKm : null}
+          viewKey={result?.message_id}
+          onSelect={(attId) => {
+            const place =
+              (planOrigin?.att_id === attId ? planOrigin : null) ||
+              resultPlaces.find((item) => item.att_id === attId) ||
+              nearbyPlaces.find((item) => item.att_id === attId) ||
+              knownPlaces.current.get(attId);
+            if (!place) return;
+            setFocusAttId(place.att_id);
+            setPlanOrigin(place);
+          }}
         />
       </div>
 
@@ -795,21 +1021,42 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
         onCancel={closeConfirm}
       />
       <PlaceDetailModal
-        place={result?.places.find((item) => item.att_id === openAttId) || null}
+        place={
+          result?.places.find((item) => item.att_id === openAttId) ||
+          nearbyPlaces.find((item) => item.att_id === openAttId) ||
+          (planOrigin?.att_id === openAttId ? planOrigin : null) ||
+          (openAttId ? knownPlaces.current.get(openAttId) || null : null)
+        }
         rating={
           result && openAttId ? ratings[`${result.message_id}:${openAttId}`] || 0 : 0
         }
         uploading={Boolean(openAttId && uploadingAttId === openAttId)}
+        nearby={nearbyPlaces}
+        nearbyLoading={nearbyLoading}
+        nearbyKm={nearbyKm}
+        origin={planOrigin || undefined}
         onClose={() => setOpenAttId(null)}
+        onKmChange={setNearbyKm}
+        onFocusPlace={(stop) => {
+          setFocusAttId(stop.att_id);
+          setPlanOrigin(stop);
+          setOpenAttId(stop.att_id);
+        }}
         onVote={(value) => {
-          const place = result?.places.find((item) => item.att_id === openAttId);
+          const place =
+            result?.places.find((item) => item.att_id === openAttId) ||
+            nearbyPlaces.find((item) => item.att_id === openAttId) ||
+            planOrigin;
           if (place) void vote(place, value);
         }}
         onUpload={() => {
           if (openAttId) pickUpload(openAttId);
         }}
         onFavorite={(imageId) => {
-          const place = result?.places.find((item) => item.att_id === openAttId);
+          const place =
+            result?.places.find((item) => item.att_id === openAttId) ||
+            nearbyPlaces.find((item) => item.att_id === openAttId) ||
+            planOrigin;
           if (place) void favorite(place, imageId);
         }}
         onDelete={(imageId) => {

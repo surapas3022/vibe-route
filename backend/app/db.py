@@ -6,6 +6,7 @@ from typing import Any
 from supabase import Client, create_client
 
 from app.config import Settings, get_settings
+from app.privacy import mask_query
 
 _client: Client | None = None
 
@@ -77,6 +78,42 @@ def fetch_listings_by_ids(att_ids: list[str]) -> list[dict[str, Any]]:
     return [by_id[att_id] for att_id in att_ids if att_id in by_id]
 
 
+def nearby_listings(
+    lat: float,
+    lng: float,
+    *,
+    km: float,
+    region: str,
+    exclude_att_id: str | None,
+    match_count: int,
+) -> list[dict[str, Any]]:
+    from app.geo import bounding_box, pick_nearby
+
+    if not supabase_configured():
+        return []
+    south, north, west, east = bounding_box(lat, lng, km)
+    result = (
+        get_supabase()
+        .table("listings")
+        .select("*")
+        .eq("region", region)
+        .gte("lat", south)
+        .lte("lat", north)
+        .gte("lng", west)
+        .lte("lng", east)
+        .limit(200)
+        .execute()
+    )
+    return pick_nearby(
+        lat,
+        lng,
+        result.data or [],
+        km=km,
+        exclude_att_id=exclude_att_id,
+        limit=match_count,
+    )
+
+
 def fetch_chat_queries(
     chat_id: str | None,
     session_id: str,
@@ -109,7 +146,7 @@ def fetch_chat_queries(
             break
         text = str(row.get("query") or "").strip()
         if text:
-            queries.append(text)
+            queries.append(mask_query(text))
     return queries
 
 
@@ -155,7 +192,7 @@ def keyword_queries(query: str) -> list[str]:
 
     def add(item: str) -> None:
         item = item.strip()
-        if len(item) < 2 or item in seen:
+        if len(item) < 2 or item in seen or set(item) <= {"*"}:
             return
         seen.add(item)
         found.append(item)

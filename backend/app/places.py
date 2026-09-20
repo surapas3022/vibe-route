@@ -26,8 +26,8 @@ def listing_to_place(row: dict[str, Any], *, why: str, images: list[PlaceImage] 
         fee=fee,
         hours=hours,
         tel=tel,
-        website=facts.clean_text(row.get("website")),
-        facebook=facts.clean_text(row.get("facebook")),
+        website=facts.external_url(row.get("website")),
+        facebook=facts.external_url(row.get("facebook"), kind="facebook"),
         limitation=facts.clean_text(row.get("limitation")),
         lat=lat,
         lng=lng,
@@ -54,7 +54,7 @@ def pack_image(
     )
 
 
-def map_points_for(places: list[Place]) -> list[MapPoint]:
+def map_points_for(places: list[Place], *, kind: str | None = None) -> list[MapPoint]:
     points = []
     for place in places:
         if place.lat is None or place.lng is None:
@@ -65,6 +65,8 @@ def map_points_for(places: list[Place]) -> list[MapPoint]:
                 name_th=place.name_th,
                 lat=place.lat,
                 lng=place.lng,
+                kind=kind,
+                distance_km=place.distance_km,
             )
         )
     return points

@@ -1,4 +1,4 @@
-import { CHIANG_MAI, type Place } from "../types";
+import { CHIANG_MAI, externalHref, type Place } from "../types";
 
 type Props = {
   place: Place;
@@ -41,6 +41,8 @@ export function PlaceCard({
       ? `กรุณาติดต่อ ${place.tel} ก่อนเดินทาง`
       : "";
   const secondary = place.province !== CHIANG_MAI;
+  const websiteHref = externalHref(place.website);
+  const facebookHref = externalHref(place.facebook, "facebook");
 
   return (
     <article
@@ -145,13 +147,13 @@ export function PlaceCard({
         </div>
         {place.limitation ? <p className="limitation">{place.limitation}</p> : null}
         <div className="links" onClick={(e) => e.stopPropagation()}>
-          {place.website ? (
-            <a href={place.website} target="_blank" rel="noreferrer">
+          {websiteHref ? (
+            <a href={websiteHref} target="_blank" rel="noreferrer">
               เว็บไซต์
             </a>
           ) : null}
-          {place.facebook ? (
-            <a href={place.facebook} target="_blank" rel="noreferrer">
+          {facebookHref ? (
+            <a href={facebookHref} target="_blank" rel="noreferrer">
               Facebook
             </a>
           ) : null}

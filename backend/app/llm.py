@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from app.config import get_settings
+from app.privacy import mask_query
 from app.schemas import AssistantStatus
 
 NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
@@ -79,13 +80,13 @@ def _user_prompt(
         }
         for card in cards
     ]
-    earlier = [item.strip() for item in (prior or []) if item and item.strip()]
+    earlier = [mask_query(item.strip()) for item in (prior or []) if item and item.strip()]
     history = ""
     if earlier:
         history = "Earlier requests:\n" + "\n".join(f"- {item}" for item in earlier[-4:]) + "\n"
     return (
         f"{history}"
-        f"Latest request: {query}\n"
+        f"Latest request: {mask_query(query)}\n"
         f"Places (first card is the one to lead with):\n{json.dumps(slim, ensure_ascii=False)}"
     )
 
@@ -212,6 +213,8 @@ async def explain_vibe(
     prior: list[str] | None = None,
     budget_s: float = EXPLAIN_BUDGET_S,
 ) -> tuple[str, dict[str, str], AssistantStatus]:
+    query = mask_query(query)
+    prior = [mask_query(item) for item in (prior or [])]
     if not cards:
         return (
             "ไม่พบที่เที่ยวในภาคเหนือที่ตรงมู้ดนี้จากฐาน ททท.",

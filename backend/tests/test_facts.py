@@ -1,4 +1,4 @@
-from app.facts import fee_field, hours_field, parse_location, usable_tel
+from app.facts import external_url, fee_field, hours_field, parse_location, usable_tel
 
 
 def test_fee_zero_is_free():
@@ -29,3 +29,21 @@ def test_location_drops_maps_url():
 def test_tel_dash_is_none():
     assert usable_tel("-") is None
     assert usable_tel("056 511 222") == "056 511 222"
+
+
+def test_external_url_adds_https_when_missing():
+    assert external_url("www.uthaithani.go.th") == "https://www.uthaithani.go.th"
+    assert external_url("https://www.centralpattana.co.th/") == "https://www.centralpattana.co.th/"
+    assert external_url("http://www.lanna-arch.net") == "http://www.lanna-arch.net"
+    assert external_url("//facebook.com/page") == "https://facebook.com/page"
+    assert external_url("-") is None
+    assert external_url("javascript:alert(1)") is None
+
+
+def test_external_url_facebook_handle():
+    assert external_url("SunySthapatykrrmLanNa", kind="facebook") == (
+        "https://www.facebook.com/SunySthapatykrrmLanNa"
+    )
+    assert external_url("www.facebook.com/page", kind="facebook") == (
+        "https://www.facebook.com/page"
+    )

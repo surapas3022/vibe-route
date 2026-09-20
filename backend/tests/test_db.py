@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from app import db
 from app.db import keyword_queries, fetch_chat_queries
+from app.privacy import mask_query
 
 
 def test_retrieval_query_uses_prior_chat_turns(monkeypatch):
@@ -68,6 +69,25 @@ def test_fetch_chat_queries_returns_turns_before_message(monkeypatch):
     assert fetch_chat_queries("c1", "user-1", before_message_id="m2") == [
         "อยากไปที่เงียบๆ สโลว์ไลฟ์"
     ]
+
+
+def test_fetch_chat_queries_masks_stored_pii(monkeypatch):
+    class FakeClient:
+        def table(self, name):
+            if name == "chats":
+                return _FakeQuery([{"id": "c1"}])
+            return _FakeQuery(
+                [
+                    {"id": "m1", "query": "อยากไปเชียงใหม่ โทร 0812345678"},
+                ]
+            )
+
+    monkeypatch.setattr(db, "supabase_configured", lambda: True)
+    monkeypatch.setattr(db, "get_supabase", lambda: FakeClient())
+    rows = fetch_chat_queries("c1", "user-1")
+    assert rows == [mask_query("อยากไปเชียงใหม่ โทร 0812345678")]
+    assert "0812345678" not in rows[0]
+    assert "เชียงใหม่" in rows[0]
 
 
 def test_winter_vibe_query_extracts_season_hints():

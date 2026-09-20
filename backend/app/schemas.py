@@ -49,6 +49,7 @@ class Place(BaseModel):
     limitation: str | None = None
     lat: float | None = None
     lng: float | None = None
+    distance_km: float | None = None
     images: list[PlaceImage] = Field(default_factory=list)
 
 
@@ -57,6 +58,8 @@ class MapPoint(BaseModel):
     name_th: str
     lat: float
     lng: float
+    kind: Literal["result", "origin", "nearby"] | None = None
+    distance_km: float | None = None
 
 
 class SearchRequest(BaseModel):
@@ -78,6 +81,13 @@ class SearchResponse(BaseModel):
     map_points: list[MapPoint]
     explain_pending: bool = False
     retrieval_query: str | None = None
+
+
+class NearbyResponse(BaseModel):
+    origin: Place
+    km: float
+    places: list[Place]
+    map_points: list[MapPoint]
 
 
 class HealthResponse(BaseModel):

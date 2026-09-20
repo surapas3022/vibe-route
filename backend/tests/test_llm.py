@@ -16,6 +16,19 @@ def test_user_prompt_keeps_latest_and_earlier_turns():
     assert "ห้วยจอกหลวง" in text
 
 
+def test_user_prompt_masks_phone_and_email():
+    text = llm._user_prompt(
+        "อยากไปเชียงใหม่ โทร 081-234-5678 อีเมล somchai@example.com",
+        [{"att_id": "1", "name_th": "ดอยอ่างขาง", "province": "เชียงใหม่"}],
+        ["ผมชื่อวิชัย อยากไปที่หนาวๆ"],
+    )
+    assert "081-234-5678" not in text
+    assert "somchai@example.com" not in text
+    assert "วิชัย" not in text
+    assert "เชียงใหม่" in text
+    assert "***" in text
+
+
 def test_explain_vibe_budget_stops_before_cloudflare_timeout(monkeypatch):
     async def slow(*_args, **_kwargs):
         await asyncio.sleep(5)

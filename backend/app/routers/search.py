@@ -3,14 +3,16 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app import db, facts, llm, places as place_mod, rerank, rewrite
 from app.config import get_settings
 from app.embed import EmbedError, embed_gemini_text, embed_nvidia_text
+from app.geo import NEARBY_KM, NEARBY_LIMIT, NEARBY_MAX_KM, NEARBY_WIDE_LIMIT, format_km
+from app.privacy import mask_query
 from app.regions import normalize_region
 from app.deps import require_session
-from app.schemas import Place, SearchRequest, SearchResponse
+from app.schemas import NearbyResponse, Place, SearchRequest, SearchResponse
 
 router = APIRouter()
 
@@ -145,7 +147,8 @@ async def search(body: SearchRequest, session_id: str = Depends(require_session)
     if not db.supabase_configured():
         raise HTTPException(status_code=503, detail="ยังไม่ได้ตั้งค่า Supabase")
 
-    retrieve_text = _retrieval_query(body.query, chat_id=body.chat_id, session_id=session_id)
+    query = mask_query(body.query)
+    retrieve_text = _retrieval_query(query, chat_id=body.chat_id, session_id=session_id)
 
     matches: list[dict[str, Any]] = []
     try:
@@ -189,7 +192,7 @@ async def search(body: SearchRequest, session_id: str = Depends(require_session)
     att_ids = [row["att_id"] for row in matches if row.get("att_id")]
     try:
         named = db.name_listings(
-            body.query,
+            query,
             region=region,
             province=body.province,
             match_count=settings.result_k,
@@ -217,7 +220,7 @@ async def search(body: SearchRequest, session_id: str = Depends(require_session)
         merged,
         prefer_secondary=body.prefer_secondary,
         limit=settings.result_k,
-        query=body.query,
+        query=query,
     )
     built = []
     for row in ranked:
@@ -229,7 +232,7 @@ async def search(body: SearchRequest, session_id: str = Depends(require_session)
                     row["province"],
                     row.get("type_label"),
                     row.get("detail_clean"),
-                    limit=420 if rewrite.name_hit(body.query, row.get("name_th")) else 180,
+                    limit=420 if rewrite.name_hit(query, row.get("name_th")) else 180,
                 ),
             )
         )
@@ -237,7 +240,7 @@ async def search(body: SearchRequest, session_id: str = Depends(require_session)
 
     empty = not built
     focus_name = next(
-        (row["name_th"] for row in ranked if rewrite.name_hit(body.query, row.get("name_th")) >= 2),
+        (row["name_th"] for row in ranked if rewrite.name_hit(query, row.get("name_th")) >= 2),
         None,
     )
     chat_id = body.chat_id or str(uuid.uuid4())
@@ -246,7 +249,7 @@ async def search(body: SearchRequest, session_id: str = Depends(require_session)
         chat_id=chat_id,
         message_id=message_id,
         intro=_fallback_intro(
-            body.query,
+            query,
             body.prefer_secondary,
             empty,
             followup=bool(body.chat_id),
@@ -260,7 +263,7 @@ async def search(body: SearchRequest, session_id: str = Depends(require_session)
         retrieval_query=retrieve_text,
     )
     try:
-        saved_id = _save_message(session_id=session_id, chat_id=response.chat_id, query=body.query, payload=response)
+        saved_id = _save_message(session_id=session_id, chat_id=response.chat_id, query=query, payload=response)
         if saved_id != response.message_id:
             response.message_id = saved_id
     except Exception:
@@ -288,7 +291,9 @@ async def explain_message(message_id: str, session_id: str = Depends(require_ses
         )
     except Exception:
         prior = []
-    retrieve_text = rewrite.retrieval_query(str(row.get("query") or ""), prior)
+    query_text = mask_query(str(row.get("query") or ""))
+    prior = [mask_query(item) for item in prior]
+    retrieve_text = rewrite.retrieval_query(query_text, prior)
     packed = _pack_search(
         chat_id=str(row["chat_id"]),
         message_id=str(row["id"]),
@@ -307,7 +312,6 @@ async def explain_message(message_id: str, session_id: str = Depends(require_ses
         item["att_id"]: item
         for item in db.fetch_listings_by_ids([place.att_id for place in places])
     }
-    query_text = str(row.get("query") or "")
     cards = []
     for place in places:
         listing = listings.get(place.att_id) or {}
@@ -363,3 +367,59 @@ async def explain_message(message_id: str, session_id: str = Depends(require_ses
     except Exception:
         pass
     return packed
+
+
+@router.get("/v1/places/{att_id}/nearby", response_model=NearbyResponse)
+def nearby_places(
+    att_id: str,
+    session_id: str = Depends(require_session),
+    km: float = Query(default=NEARBY_KM, ge=1, le=NEARBY_MAX_KM),
+):
+    settings = get_settings()
+    if not db.supabase_configured():
+        raise HTTPException(status_code=503, detail="ยังไม่ได้ตั้งค่า Supabase")
+    listings = db.fetch_listings_by_ids([att_id])
+    if not listings:
+        raise HTTPException(status_code=404, detail="ไม่พบสถานที่")
+    origin_row = listings[0]
+    origin = place_mod.listing_to_place(
+        origin_row,
+        why=facts.snippet_why(
+            origin_row["name_th"],
+            origin_row["province"],
+            origin_row.get("type_label"),
+            origin_row.get("detail_clean"),
+        ),
+    )
+    lat = origin.lat
+    lng = origin.lng
+    if lat is None or lng is None:
+        origin = place_mod.attach_live_images([origin], session_id)[0]
+        return NearbyResponse(origin=origin, km=km, places=[], map_points=[])
+
+    region = origin_row.get("region") or settings.poc_region
+    rows = db.nearby_listings(
+        lat,
+        lng,
+        km=km,
+        region=region,
+        exclude_att_id=att_id,
+        match_count=NEARBY_WIDE_LIMIT if km > NEARBY_KM else NEARBY_LIMIT,
+    )
+    built = []
+    for row in rows:
+        dist = float(row.get("distance_km") or 0)
+        place = place_mod.listing_to_place(
+            row,
+            why=f"ห่างจาก{origin.name_th} {format_km(dist)} กม. ตามพิกัดในฐาน ททท.",
+        )
+        built.append(place.model_copy(update={"distance_km": round(dist, 1)}))
+    built = place_mod.attach_live_images(built, session_id)
+    origin = place_mod.attach_live_images([origin], session_id)[0]
+    return NearbyResponse(
+        origin=origin,
+        km=km,
+        places=built,
+        map_points=place_mod.map_points_for([origin], kind="origin")
+        + place_mod.map_points_for(built, kind="nearby"),
+    )

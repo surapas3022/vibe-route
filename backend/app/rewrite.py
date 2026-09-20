@@ -26,7 +26,7 @@ def named_needles(query: str) -> list[str]:
 
     def add(item: str) -> None:
         item = _clean(item)
-        if len(item) < 3 or item in seen:
+        if len(item) < 3 or item in seen or set(item) <= {"*"}:
             return
         seen.add(item)
         found.append(item)

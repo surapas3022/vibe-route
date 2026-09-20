@@ -1,4 +1,4 @@
-from app.rewrite import retrieval_query
+from app.rewrite import named_needles, retrieval_query
 
 
 def test_first_turn_stays_as_typed():
@@ -49,3 +49,9 @@ def test_fallback_intro_uses_latest_query_on_followup():
     assert "จะไปแม่ฮ่องสอน" in text
     assert "ค้นต่อ" in text
     assert "อยากไปที่หนาวๆ" not in text
+
+
+def test_named_needles_skip_redaction_marks():
+    needles = named_needles("ไปถ้ำน้ำบ่อผี โทร ***")
+    assert "***" not in needles
+    assert any("ถ้ำน้ำบ่อผี" in item.replace(" ", "") for item in needles)

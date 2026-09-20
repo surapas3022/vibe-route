@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app import db
 from app.deps import require_session
 from app.places import attach_live_images
+from app.privacy import mask_query
 from app.schemas import Place
 
 router = APIRouter()
@@ -24,7 +25,7 @@ def pack_chat_summaries(chats: list[dict], messages: list[dict]) -> list[dict]:
         packed.append(
             {
                 "id": row["id"],
-                "title": row["title"],
+                "title": mask_query(str(row.get("title") or "")),
                 "created_at": (last or {}).get("created_at") or row["created_at"],
                 "card_count": len(places) if isinstance(places, list) else 0,
             }
@@ -91,7 +92,7 @@ def get_chat(chat_id: str, session_id: str = Depends(require_session)):
         packed.append(
             {
                 "id": row["id"],
-                "query": row["query"],
+                "query": mask_query(str(row.get("query") or "")),
                 "intro": row["intro"],
                 "assistant": row.get("assistant") or {},
                 "prefer_secondary": row["prefer_secondary"],
