@@ -21,6 +21,7 @@ import { NextSteps } from "./components/NextSteps";
 import { PlaceCard } from "./components/PlaceCard";
 import { PlaceDetailModal } from "./components/PlaceDetailModal";
 import { PlaceMap } from "./components/PlaceMap";
+import { RegionSuggest } from "./components/RegionSuggest";
 import { SkeletonCards, SkeletonThread } from "./components/Skeleton";
 import { TeamPanel } from "./components/TeamPanel";
 import { VibeComposer } from "./components/VibeComposer";
@@ -45,9 +46,16 @@ import {
   type NearbyKm,
   type Place,
   type SearchResponse,
+  type SuggestResponse,
 } from "./types";
 
 const PENDING_TURN = "pending";
+
+function searchText(draft: string, lastVibe: string, canReuse: boolean): string {
+  const typed = draft.trim();
+  if (typed) return typed;
+  return canReuse ? lastVibe.trim() : "";
+}
 
 function maskLoggedQuery(req: unknown): unknown {
   if (!req || typeof req !== "object") return req;
@@ -219,6 +227,7 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   const [provinces, setProvinces] = useState<string[]>([]);
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [region, setRegion] = useState(DEFAULT_REGION);
+  const [suggest, setSuggest] = useState<SuggestResponse | null>(null);
   const [province, setProvince] = useState("");
   const [preferSecondary, setPreferSecondary] = useState(true);
   const [query, setQuery] = useState("");
@@ -367,6 +376,15 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     }
   };
 
+  const loadSuggest = async (nextRegion: string) => {
+    try {
+      const data = await api.suggest(nextRegion);
+      setSuggest(data);
+    } catch {
+      setSuggest({ region: nextRegion, days: 14, queries: [], places: [] });
+    }
+  };
+
   const boot = async () => {
     const genAtStart = searchGen.current;
     const saved = readRememberedChatId(user.id);
@@ -401,16 +419,22 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     void boot();
   }, []);
 
+  useEffect(() => {
+    void loadSuggest(region);
+  }, [region]);
+
   const search = async (
     text: string,
     opts?: { fresh?: boolean; prefer?: boolean; province?: string },
   ) => {
-    const q = maskQuery(text.trim());
+    const canReuse = Boolean(activeChatId) && !opts?.fresh;
+    const q = maskQuery(searchText(text, query, canReuse));
     if (!q) return;
     const prefer = opts?.prefer ?? preferSecondary;
     const nextProvince = opts?.province ?? province;
     const gen = ++searchGen.current;
-    const filterOnly = opts?.prefer !== undefined || opts?.province !== undefined;
+    const reused = canReuse && !text.trim();
+    const filterOnly = reused || opts?.prefer !== undefined || opts?.province !== undefined;
     setLoading(true);
     setOpeningChat(false);
     setExplaining(false);
@@ -517,12 +541,12 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
 
   const onPreferSecondary = (value: boolean) => {
     setPreferSecondary(value);
-    if (query && result) void search(query, { prefer: value });
+    if (query.trim()) void search(query, { prefer: value });
   };
 
   const onProvince = (value: string) => {
     setProvince(value);
-    if (query && result) void search(query, { province: value });
+    if (query.trim()) void search(query, { province: value });
   };
 
   const loadChat = async (id: string) => {
@@ -668,6 +692,7 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     try {
       await api.feedback(body);
       logTeam({ method: "POST", path: "/v1/feedback", body }, { ok: true });
+      void loadSuggest(region);
     } catch (err) {
       logTeam({ method: "POST", path: "/v1/feedback", body }, { error: err instanceof Error ? err.message : "ไม่สำเร็จ" });
     }
@@ -741,7 +766,15 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   useEffect(() => {
     const el = feedRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    if (loading || explaining) {
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    const lastBubble = el.querySelector(".thread .bubble-row:last-child");
+    if (!(lastBubble instanceof HTMLElement)) return;
+    const feedTop = el.getBoundingClientRect().top;
+    const bubbleTop = lastBubble.getBoundingClientRect().top;
+    el.scrollTop = Math.max(0, el.scrollTop + bubbleTop - feedTop - 8);
   }, [thread, loading, explaining, result?.message_id]);
 
   const focusedName =
@@ -761,7 +794,7 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
             ? `${focusedName} จากฐาน ททท. ที่เหลือเป็นที่ใกล้เคียงในมู้ดเดิม`
             : `ใน ${result.places.length} แห่งนี้ เป็นจังหวัดอื่นนอกเชียงใหม่ ${result.secondary_count} แห่ง`
           : result.message_id
-            ? "ไม่มีการ์ดจากฐาน"
+            ? "ไม่โชว์การ์ด เพราะผลไม่ตรงคำค้นจากฐาน ททท. ของภาคนี้"
             : ""
         : "";
   const barAssistant = loading
@@ -851,15 +884,18 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
             {!result && !loading && thread.length === 0 ? (
               <div className="welcome">
                 <h2>พิมพ์มู้ดแล้วค้นจากฐาน ททท.</h2>
-                <p>เปิดมาก็ไม่มีการ์ดปลอม ผลขึ้นเมื่อค้นจริงเท่านั้น กดคำค้นหายอดนิยมด้านล่างได้เลย</p>
-                <p className="chips-label">คำค้นหายอดนิยม</p>
-                <div className="chips popular" data-component="PopularSearches">
-                  {POPULAR_SEARCHES.map((chip) => (
-                    <button key={chip.q} type="button" onClick={() => void search(chip.q, { fresh: true })}>
-                      {chip.label}
-                    </button>
-                  ))}
-                </div>
+                <p>
+                  ผลขึ้นเมื่อค้นจริงเท่านั้น คำแนะนำด้านล่างแยกตาม{region} จากที่คนค้นและกดถูกใจช่วงนี้
+                </p>
+                <RegionSuggest
+                  region={suggest?.region || region}
+                  days={suggest?.days || 14}
+                  queries={suggest?.queries || []}
+                  places={suggest?.places || []}
+                  fallbackQueries={POPULAR_SEARCHES}
+                  onQuery={(text) => void search(text, { fresh: true })}
+                  onPlace={(name) => void search(name, { fresh: true })}
+                />
                 <p className="chips-label demo">เคสเดโม</p>
                 <div className="chips demo" data-component="DemoChips">
                   {DEMO_CHIPS.map((chip) => (
@@ -911,14 +947,10 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
                               : undefined
                           }
                           focused={focusAttId === place.att_id}
-                          onFocus={() => {
-                            setFocusAttId(place.att_id);
-                            setPlanOrigin(place);
-                          }}
+                          onFocus={() => setFocusAttId(place.att_id)}
                           onOpen={() => {
                             setOpenAttId(place.att_id);
                             setFocusAttId(place.att_id);
-                            setPlanOrigin(place);
                           }}
                         />
                       ))}
@@ -934,13 +966,13 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
                 nearbyKm={nearbyKm}
                 onPick={(text) => void search(text, { fresh: false })}
                 onKmChange={setNearbyKm}
-                onFocus={(stop) => {
+                onFocus={(stop) => setFocusAttId(stop.att_id)}
+                onSetOrigin={(stop) => {
                   setFocusAttId(stop.att_id);
                   setPlanOrigin(stop);
                 }}
                 onOpen={(stop) => {
                   setFocusAttId(stop.att_id);
-                  setPlanOrigin(stop);
                   setOpenAttId(stop.att_id);
                 }}
               />
@@ -952,7 +984,18 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
             lastVibe={query}
             onQuery={setDraft}
             onSubmit={() => void search(draft, { fresh: false })}
-            suggestions={anchorPlace ? [] : thread.length || result || loading ? POPULAR_SEARCHES : []}
+            suggestions={
+              anchorPlace
+                ? []
+                : thread.length || result || loading
+                  ? (suggest?.queries.length
+                      ? suggest.queries.map((item) => ({ q: item.query, label: item.label }))
+                      : POPULAR_SEARCHES)
+                  : []
+            }
+            suggestionLabel={
+              suggest?.queries.length ? `คนค้นใน${suggest.region || region}` : "คำค้นหายอดนิยม"
+            }
             onSuggest={(text) => void search(text, { fresh: true })}
             nextSteps={anchorPlace ? nextStepSearches(anchorPlace) : []}
             onNextStep={(text) => void search(text, { fresh: false })}
@@ -983,7 +1026,6 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
               knownPlaces.current.get(attId);
             if (!place) return;
             setFocusAttId(place.att_id);
-            setPlanOrigin(place);
           }}
         />
       </div>
@@ -1039,8 +1081,11 @@ function Workbench({ user, onLogout }: { user: AuthUser; onLogout: () => void })
         onKmChange={setNearbyKm}
         onFocusPlace={(stop) => {
           setFocusAttId(stop.att_id);
-          setPlanOrigin(stop);
           setOpenAttId(stop.att_id);
+        }}
+        onSetOrigin={(stop) => {
+          setFocusAttId(stop.att_id);
+          setPlanOrigin(stop);
         }}
         onVote={(value) => {
           const place =

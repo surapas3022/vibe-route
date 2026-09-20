@@ -54,6 +54,9 @@ create table if not exists messages (
   id uuid primary key default gen_random_uuid(),
   chat_id uuid not null references chats(id) on delete cascade,
   query text not null,
+  retrieval_query text,
+  region text,
+  province text,
   prefer_secondary boolean not null default true,
   intro text not null,
   assistant jsonb not null,
@@ -63,6 +66,11 @@ create table if not exists messages (
 );
 
 create index if not exists messages_chat_idx on messages (chat_id, created_at);
+create index if not exists messages_region_idx
+  on messages (region, created_at desc)
+  where region is not null;
+
+alter table messages add column if not exists province text;
 
 create table if not exists feedback (
   message_id uuid not null references messages(id) on delete cascade,

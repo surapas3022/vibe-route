@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from app import db
-from app.db import keyword_queries, fetch_chat_queries
+from app.db import keyword_queries, fetch_chat_queries, fetch_session_votes
 from app.privacy import mask_query
 
 
@@ -42,6 +42,15 @@ class _FakeQuery:
         return self
 
     def order(self, *_args, **_kwargs):
+        return self
+
+    def in_(self, *_args, **_kwargs):
+        return self
+
+    def gte(self, *_args, **_kwargs):
+        return self
+
+    def limit(self, *_args, **_kwargs):
         return self
 
     def execute(self):
@@ -88,6 +97,111 @@ def test_fetch_chat_queries_masks_stored_pii(monkeypatch):
     assert rows == [mask_query("อยากไปเชียงใหม่ โทร 0812345678")]
     assert "0812345678" not in rows[0]
     assert "เชียงใหม่" in rows[0]
+
+
+def test_fetch_session_votes_keeps_latest_rating(monkeypatch):
+    class FakeClient:
+        def table(self, name):
+            if name == "feedback":
+                return _FakeQuery(
+                    [
+                        {
+                            "att_id": "cave",
+                            "rating": 1,
+                            "message_id": "m1",
+                            "created_at": "2026-09-20T08:00:00Z",
+                        },
+                        {
+                            "att_id": "cave",
+                            "rating": -1,
+                            "message_id": "m2",
+                            "created_at": "2026-09-20T09:00:00Z",
+                        },
+                        {
+                            "att_id": "park",
+                            "rating": 1,
+                            "message_id": "m1",
+                            "created_at": "2026-09-20T08:00:00Z",
+                        },
+                    ]
+                )
+            if name == "messages":
+                return _FakeQuery(
+                    [
+                        {"id": "m1", "query": "อยากเดินป่า", "retrieval_query": "อยากเดินป่า"},
+                        {"id": "m2", "query": "ถ้ำน้ำบ่อผี", "retrieval_query": "ถ้ำน้ำบ่อผี"},
+                    ]
+                )
+            return _FakeQuery(
+                [
+                    {"att_id": "cave", "type_label": "ถ้ำ"},
+                    {"att_id": "park", "type_label": "อุทยานแห่งชาติ"},
+                ]
+            )
+
+    monkeypatch.setattr(db, "supabase_configured", lambda: True)
+    monkeypatch.setattr(db, "get_supabase", lambda: FakeClient())
+    votes = {item["att_id"]: item for item in fetch_session_votes("user-1")}
+    assert votes["cave"]["rating"] == -1
+    assert votes["cave"]["vibe"] == "ถ้ำน้ำบ่อผี"
+    assert votes["park"]["rating"] == 1
+    assert votes["park"]["type_label"] == "อุทยานแห่งชาติ"
+    assert votes["park"]["vibe"] == "อยากเดินป่า"
+
+
+def test_fetch_session_votes_skips_empty_session():
+    assert fetch_session_votes("") == []
+
+
+def test_fetch_session_votes_keeps_main_and_secondary_lanes(monkeypatch):
+    class FakeClient:
+        def table(self, name):
+            if name == "feedback":
+                return _FakeQuery(
+                    [
+                        {
+                            "att_id": "doi",
+                            "rating": 1,
+                            "message_id": "m-secondary",
+                            "created_at": "2026-09-20T08:00:00Z",
+                        },
+                        {
+                            "att_id": "doi",
+                            "rating": 1,
+                            "message_id": "m-main",
+                            "created_at": "2026-09-20T09:00:00Z",
+                        },
+                    ]
+                )
+            if name == "messages":
+                return _FakeQuery(
+                    [
+                        {
+                            "id": "m-secondary",
+                            "query": "อยากเดินป่า",
+                            "retrieval_query": "อยากเดินป่า",
+                            "prefer_secondary": True,
+                            "province": None,
+                            "places": [{"province": "น่าน"}, {"province": "เชียงใหม่"}],
+                        },
+                        {
+                            "id": "m-main",
+                            "query": "อยากเดินป่า",
+                            "retrieval_query": "อยากเดินป่า",
+                            "prefer_secondary": True,
+                            "province": "เชียงใหม่",
+                            "places": [{"province": "เชียงใหม่"}],
+                        },
+                    ]
+                )
+            return _FakeQuery([{"att_id": "doi", "type_label": "จุดชมวิว"}])
+
+    monkeypatch.setattr(db, "supabase_configured", lambda: True)
+    monkeypatch.setattr(db, "get_supabase", lambda: FakeClient())
+    votes = {(item["att_id"], item["secondary_focus"]): item for item in fetch_session_votes("user-1")}
+    assert votes[("doi", True)]["rating"] == 1
+    assert votes[("doi", False)]["rating"] == 1
+    assert votes[("doi", False)]["type_label"] == "จุดชมวิว"
 
 
 def test_winter_vibe_query_extracts_season_hints():

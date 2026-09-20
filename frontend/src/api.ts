@@ -339,6 +339,10 @@ export const api = {
     request<{ provinces: Array<{ name?: string; province?: string } | string> }>(
       "/v1/provinces?region=" + encodeURIComponent(region),
     ),
+  suggest: (region: string) =>
+    request<import("./types").SuggestResponse>(
+      "/v1/suggest?region=" + encodeURIComponent(region),
+    ),
   me: () => request<AuthUser>("/v1/auth/me"),
   register: (body: { email: string; password: string; confirm_password: string }) =>
     json<AuthResponse>("/v1/auth/register", "POST", body),

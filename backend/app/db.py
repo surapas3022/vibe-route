@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from supabase import Client, create_client
 
 from app.config import Settings, get_settings
 from app.privacy import mask_query
+from app.rerank import secondary_focus
 
 _client: Client | None = None
 
@@ -148,6 +149,136 @@ def fetch_chat_queries(
         if text:
             queries.append(mask_query(text))
     return queries
+
+
+def _load_messages(client: Any, message_ids: list[str]) -> dict[str, dict[str, Any]]:
+    if not message_ids:
+        return {}
+    selects = (
+        "id,query,retrieval_query,prefer_secondary,province,places,region",
+        "id,query,retrieval_query,prefer_secondary,places,region",
+        "id,query,retrieval_query,region",
+        "id,query,retrieval_query",
+        "id,query",
+    )
+    result = None
+    for cols in selects:
+        try:
+            result = client.table("messages").select(cols).in_("id", message_ids).execute()
+            break
+        except Exception:
+            continue
+    out: dict[str, dict[str, Any]] = {}
+    for item in (result.data if result else []) or []:
+        key = str(item.get("id") or "")
+        if key:
+            out[key] = item
+    return out
+
+
+def fetch_session_votes(session_id: str) -> list[dict[str, Any]]:
+    if not session_id or not supabase_configured():
+        return []
+    client = get_supabase()
+    result = (
+        client.table("feedback")
+        .select("att_id,rating,message_id,created_at")
+        .eq("session_id", session_id)
+        .order("created_at")
+        .execute()
+    )
+    rows = result.data or []
+    if not rows:
+        return []
+    message_ids = list(dict.fromkeys(str(row["message_id"]) for row in rows if row.get("message_id")))
+    att_ids = list(dict.fromkeys(str(row["att_id"]) for row in rows if row.get("att_id")))
+    messages_by_id = _load_messages(client, message_ids)
+    types_by_id: dict[str, str | None] = {}
+    if att_ids:
+        listings = client.table("listings").select("att_id,type_label").in_("att_id", att_ids).execute()
+        for item in listings.data or []:
+            types_by_id[str(item.get("att_id") or "")] = item.get("type_label")
+    latest: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        att_id = str(row.get("att_id") or "")
+        if not att_id:
+            continue
+        message = messages_by_id.get(str(row.get("message_id") or ""), {})
+        vibe = str(message.get("retrieval_query") or message.get("query") or "").strip()
+        focus = secondary_focus(
+            message.get("prefer_secondary"),
+            message.get("province"),
+            message.get("places"),
+        )
+        latest[f"{att_id}:{int(focus)}"] = {
+            "att_id": att_id,
+            "rating": int(row.get("rating") or 0),
+            "vibe": mask_query(vibe) if vibe else "",
+            "type_label": types_by_id.get(att_id),
+            "secondary_focus": focus,
+        }
+    return list(latest.values())
+
+
+def region_trends(region: str, *, days: int | None = None) -> dict[str, Any]:
+    from app.trends import TREND_DAYS, pack_crowd, pack_places, pack_queries
+
+    window = days if days is not None else TREND_DAYS
+    empty = {"region": region, "days": window, "crowd": [], "places": [], "queries": []}
+    if not region or not supabase_configured():
+        return empty
+    client = get_supabase()
+    since = (datetime.now(timezone.utc) - timedelta(days=window)).isoformat()
+    try:
+        feedback = (
+            client.table("feedback")
+            .select("att_id,rating,message_id,created_at")
+            .gte("created_at", since)
+            .order("created_at")
+            .limit(2000)
+            .execute()
+        )
+        rows = feedback.data or []
+    except Exception:
+        rows = []
+    message_ids = list(dict.fromkeys(str(row["message_id"]) for row in rows if row.get("message_id")))
+    att_ids = list(dict.fromkeys(str(row["att_id"]) for row in rows if row.get("att_id")))
+    messages_by_id = _load_messages(client, message_ids)
+    listings_by_id: dict[str, dict[str, Any]] = {}
+    if att_ids:
+        listed = (
+            client.table("listings")
+            .select("att_id,name_th,province,region,type_label")
+            .in_("att_id", att_ids)
+            .execute()
+        )
+        for item in listed.data or []:
+            listings_by_id[str(item.get("att_id") or "")] = item
+    crowd = pack_crowd(region=region, feedback=rows, messages=messages_by_id, listings=listings_by_id)
+    query_texts: list[str] = []
+    try:
+        recent = (
+            client.table("messages")
+            .select("query,retrieval_query,region,created_at")
+            .eq("region", region)
+            .gte("created_at", since)
+            .order("created_at", desc=True)
+            .limit(500)
+            .execute()
+        )
+        for item in recent.data or []:
+            query_texts.append(str(item.get("retrieval_query") or item.get("query") or ""))
+    except Exception:
+        pass
+    for item in crowd:
+        query_texts.extend(str(vibe) for vibe in item.get("vibes") or [])
+    return {
+        "region": region,
+        "days": window,
+        "crowd": crowd,
+        "places": pack_places(crowd),
+        "queries": pack_queries(query_texts),
+    }
 
 
 def match_listings(

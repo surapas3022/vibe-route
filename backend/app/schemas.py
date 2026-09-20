@@ -109,3 +109,24 @@ class FeedbackResponse(BaseModel):
     ok: bool
     att_id: str
     rating: Literal[1, -1]
+
+
+class TrendPlace(BaseModel):
+    att_id: str
+    name_th: str
+    province: str
+    type_label: str | None = None
+    likes: int
+
+
+class TrendQuery(BaseModel):
+    query: str
+    label: str
+    count: int
+
+
+class SuggestResponse(BaseModel):
+    region: str
+    days: int
+    queries: list[TrendQuery] = Field(default_factory=list)
+    places: list[TrendPlace] = Field(default_factory=list)

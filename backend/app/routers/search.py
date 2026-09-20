@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app import db, facts, llm, places as place_mod, rerank, rewrite
+from app import db, facts, intent, llm, places as place_mod, rerank, rewrite
 from app.config import get_settings
 from app.embed import EmbedError, embed_gemini_text, embed_nvidia_text
 from app.geo import NEARBY_KM, NEARBY_LIMIT, NEARBY_MAX_KM, NEARBY_WIDE_LIMIT, format_km
@@ -24,7 +24,10 @@ def _fallback_intro(
     *,
     followup: bool = False,
     focus_name: str | None = None,
+    mismatch: str | None = None,
 ) -> str:
+    if mismatch:
+        return mismatch
     if empty:
         return "ไม่พบที่เที่ยวในภาคเหนือที่ตรงมู้ดนี้จากฐาน ททท."
     if focus_name:
@@ -44,6 +47,8 @@ def _save_message(
     chat_id: str,
     query: str,
     payload: SearchResponse,
+    region: str | None = None,
+    province: str | None = None,
 ) -> str:
     client = db.get_supabase()
     existing = client.table("chats").select("id").eq("id", chat_id).eq("session_id", session_id).execute()
@@ -62,13 +67,41 @@ def _save_message(
         "assistant": payload.assistant.model_dump(),
         "places": [item.model_dump() for item in payload.places],
         "map_points": [item.model_dump() for item in payload.map_points],
+        "retrieval_query": payload.retrieval_query,
+        "region": region,
+        "province": province,
     }
     last = db.last_chat_message(chat_id, session_id)
-    if last and str(last.get("query") or "").strip() == query.strip():
-        client.table("messages").update(row).eq("id", last["id"]).execute()
-        return str(last["id"])
-    client.table("messages").insert({"id": payload.message_id, "chat_id": chat_id, **row}).execute()
-    return payload.message_id
+    last_id = str(last["id"]) if last and str(last.get("query") or "").strip() == query.strip() else None
+    return _write_message_row(client, chat_id=chat_id, message_id=payload.message_id, last_id=last_id, row=row)
+
+
+def _write_message_row(
+    client: Any,
+    *,
+    chat_id: str,
+    message_id: str,
+    last_id: str | None,
+    row: dict[str, Any],
+) -> str:
+    extras = ("retrieval_query", "region", "province")
+    stored = dict(row)
+    while True:
+        try:
+            if last_id:
+                client.table("messages").update(stored).eq("id", last_id).execute()
+                return last_id
+            client.table("messages").insert({"id": message_id, "chat_id": chat_id, **stored}).execute()
+            return message_id
+        except Exception:
+            dropped = False
+            for key in extras:
+                if key in stored:
+                    stored.pop(key)
+                    dropped = True
+                    break
+            if not dropped:
+                raise
 
 
 def _can_explain() -> bool:
@@ -149,6 +182,7 @@ async def search(body: SearchRequest, session_id: str = Depends(require_session)
 
     query = mask_query(body.query)
     retrieve_text = _retrieval_query(query, chat_id=body.chat_id, session_id=session_id)
+    mismatch = None
 
     matches: list[dict[str, Any]] = []
     try:
@@ -216,12 +250,44 @@ async def search(body: SearchRequest, session_id: str = Depends(require_session)
         seen.add(att_id)
         merged.append({**listing, "score_vector": row.get("score_vector") or 0})
 
+    votes: list[dict[str, Any]] = []
+    crowd: list[dict[str, Any]] = []
+    try:
+        votes = db.fetch_session_votes(session_id)
+    except Exception:
+        votes = []
+    try:
+        crowd = db.region_trends(region).get("crowd") or []
+    except Exception:
+        crowd = []
     ranked = rerank.sort_candidates(
         merged,
         prefer_secondary=body.prefer_secondary,
         limit=settings.result_k,
         query=query,
+        vibe=retrieve_text,
+        votes=votes,
+        crowd=crowd,
+        province=body.province,
     )
+    intents = intent.matched_intents(query) or intent.matched_intents(retrieve_text)
+    if intent.requires_listing_match(intents):
+        ranked = [row for row in ranked if row.get("intent_hit")]
+        if not ranked:
+            mismatch = intent.empty_intro(query, region, no_listing=True)
+    else:
+        ranked = [
+            row
+            for row in ranked
+            if row.get("name_hit")
+            or row.get("intent_hit")
+            or float(row.get("score_vector") or 0) >= intent.MIN_VECTOR_SCORE
+        ]
+        if not ranked and merged:
+            mismatch = (
+                f"ไม่พบที่เที่ยวใน{region}ที่ตรงมู้ด «{query}» จากฐาน ททท. "
+                "ผลที่ใกล้เคียงเกินไปจึงไม่แสดง"
+            )
     built = []
     for row in ranked:
         built.append(
@@ -254,6 +320,7 @@ async def search(body: SearchRequest, session_id: str = Depends(require_session)
             empty,
             followup=bool(body.chat_id),
             focus_name=focus_name,
+            mismatch=mismatch,
         ),
         assistant=llm.health_assistant(),
         prefer_secondary=body.prefer_secondary,
@@ -263,7 +330,14 @@ async def search(body: SearchRequest, session_id: str = Depends(require_session)
         retrieval_query=retrieve_text,
     )
     try:
-        saved_id = _save_message(session_id=session_id, chat_id=response.chat_id, query=query, payload=response)
+        saved_id = _save_message(
+            session_id=session_id,
+            chat_id=response.chat_id,
+            query=query,
+            payload=response,
+            region=region,
+            province=body.province,
+        )
         if saved_id != response.message_id:
             response.message_id = saved_id
     except Exception:

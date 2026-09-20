@@ -89,6 +89,19 @@ export type HealthResponse = {
   embed_gemini_count?: number;
 };
 
+export type SuggestResponse = {
+  region: string;
+  days: number;
+  queries: Array<{ query: string; label: string; count: number }>;
+  places: Array<{
+    att_id: string;
+    name_th: string;
+    province: string;
+    type_label?: string | null;
+    likes: number;
+  }>;
+};
+
 export type ChatSummary = {
   id: string;
   title: string;

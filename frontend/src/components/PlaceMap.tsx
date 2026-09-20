@@ -83,7 +83,10 @@ export function PlaceMap({ points, layoutTick, focusId, originId, radiusKm, view
   onSelectRef.current = onSelect;
 
   useEffect(() => {
-    const map = L.map("map", { zoomControl: true }).setView(NORTH, 6);
+    const map = L.map("map", {
+      zoomControl: true,
+      renderer: L.svg({ padding: 0 }),
+    }).setView(NORTH, 6);
     L.tileLayer(STREET_TILES, { attribution: "Tiles © Esri" }).addTo(map);
     const noteUser = () => {
       if (ignoreUserView.current) return;
@@ -215,7 +218,7 @@ export function PlaceMap({ points, layoutTick, focusId, originId, radiusKm, view
 
   useEffect(() => {
     mapRef.current?.invalidateSize();
-  }, [layoutTick, points]);
+  }, [layoutTick, points, focusId]);
 
   const nearbyCount = points.filter((pt) => pt.kind === "nearby").length;
   const origin = points.find((pt) => pt.kind === "origin");

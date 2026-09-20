@@ -14,6 +14,7 @@ type Props = {
   onNext: (query: string) => void;
   onKmChange?: (km: NearbyKm) => void;
   onFocusPlace?: (place: Place) => void;
+  onSetOrigin?: (place: Place) => void;
   origin?: Place;
   nearby?: Place[];
   nearbyLoading?: boolean;
@@ -47,6 +48,7 @@ export function PlaceDetailModal({
   onNext,
   onKmChange,
   onFocusPlace,
+  onSetOrigin,
   origin,
   nearby,
   nearbyLoading,
@@ -84,6 +86,11 @@ export function PlaceDetailModal({
             <button type="button" className="modal-btn ghost" onClick={onClose}>
               ปิด
             </button>
+            {onSetOrigin && origin?.att_id !== place.att_id ? (
+              <button type="button" className="modal-btn ghost" onClick={() => onSetOrigin(place)}>
+                ตั้งเป็นจุดเริ่มต้น
+              </button>
+            ) : null}
             <button type="button" className="modal-btn primary" onClick={onUpload} disabled={uploading}>
               {uploading ? "กำลังอัปโหลด…" : "เพิ่มรูป"}
             </button>
@@ -190,6 +197,7 @@ export function PlaceDetailModal({
             onPick={onNext}
             onKmChange={onKmChange}
             onFocus={onFocusPlace}
+            onSetOrigin={onSetOrigin}
           />
           {place.images.length || uploading ? (
             <section>

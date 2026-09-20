@@ -20,6 +20,7 @@ type Props = {
   onPick: (query: string) => void;
   onFocus?: (place: Place) => void;
   onOpen?: (place: Place) => void;
+  onSetOrigin?: (place: Place) => void;
   onKmChange?: (km: NearbyKm) => void;
 };
 
@@ -34,6 +35,7 @@ export function NextSteps({
   onFocus,
   onKmChange,
   onOpen,
+  onSetOrigin,
 }: Props) {
   const start = origin || place;
   const plan = [start, ...nearby.filter((item) => item.att_id !== start.att_id)];
@@ -44,7 +46,7 @@ export function NextSteps({
       {compact ? null : (
         <p>
           ค่าเริ่ม {NEARBY_KM} กม. รอบ «{start.name_th}» เพราะหลังถึงจุดนี้ คนมักไม่ขับไกลทันที
-          กดจุดเพื่อดูว่ามีอะไร จากนั้นขยายรัศมีได้ถ้ายังไม่เจอที่ถูกใจ
+          กดจุดเพื่อดูข้อมูลที่นั่น กด «เปลี่ยนจุดเริ่มต้น» เฉพาะเมื่อจะค้นใกล้ๆ จากที่ใหม่
         </p>
       )}
       <div className="radius-picks" role="group" aria-label="รัศมีจุดใกล้ๆ">
@@ -74,14 +76,15 @@ export function NextSteps({
         <ol className="itinerary">
           {plan.map((stop, index) => {
             const where = [stop.district, stop.province].filter(Boolean).join(" · ");
-            const slot = index === 0 ? "ฐาน" : ITINERARY_SLOTS[index - 1] || `จุด ${index}`;
-            const current = stop.att_id === start.att_id;
-            const km = stop.distance_km ?? (stop.att_id === start.att_id ? 0 : null);
+            const isOrigin = stop.att_id === start.att_id;
+            const viewing = stop.att_id === place.att_id;
+            const slot = isOrigin ? "ฐาน" : ITINERARY_SLOTS[index - 1] || `จุด ${index}`;
+            const km = stop.distance_km ?? (isOrigin ? 0 : null);
             const meta = [
               stop.type_label,
               where,
-              km != null && stop.att_id !== start.att_id ? `${formatKm(km)} กม.` : "",
-              current ? "กำลังดู" : "",
+              km != null && !isOrigin ? `${formatKm(km)} กม.` : "",
+              viewing ? "กำลังดู" : "",
             ]
               .filter(Boolean)
               .join(" · ");
@@ -89,15 +92,26 @@ export function NextSteps({
               <li key={stop.att_id}>
                 <button
                   type="button"
-                  className={current ? "is-current" : ""}
-                  aria-current={current ? "true" : undefined}
-                  title="ดูข้อมูลจุดนี้บนแผนที่ และใช้เป็นจุดเริ่มค้นใกล้ๆ"
+                  className={[viewing ? "is-current" : "", isOrigin ? "is-origin" : ""]
+                    .filter(Boolean)
+                    .join(" ")}
+                  aria-current={viewing ? "true" : undefined}
+                  title="ดูข้อมูลจุดนี้"
                   onClick={() => onFocus?.(stop)}
                 >
                   <span>{slot}</span>
                   <strong>{stop.name_th}</strong>
                   {meta ? <small>{meta}</small> : null}
                 </button>
+                {compact && onSetOrigin && !isOrigin ? (
+                  <button
+                    type="button"
+                    className="itinerary-set-origin"
+                    onClick={() => onSetOrigin(stop)}
+                  >
+                    ตั้งเป็นฐาน
+                  </button>
+                ) : null}
               </li>
             );
           })}
@@ -110,7 +124,14 @@ export function NextSteps({
             : " กด «จุดแวะต่อ» เพื่อค้นจากมู้ดแทน"}
         </p>
       )}
-      {compact ? null : <StopBrief place={start} onOpen={onOpen} />}
+      {compact ? null : (
+        <StopBrief
+          place={place}
+          isOrigin={place.att_id === start.att_id}
+          onOpen={onOpen}
+          onSetOrigin={onSetOrigin}
+        />
+      )}
       <div className="chips next">
         {nextStepSearches(place).map((chip) => (
           <button key={chip.q} type="button" onClick={() => onPick(chip.q)}>
@@ -122,13 +143,24 @@ export function NextSteps({
   );
 }
 
-function StopBrief({ place, onOpen }: { place: Place; onOpen?: (place: Place) => void }) {
+function StopBrief({
+  place,
+  isOrigin,
+  onOpen,
+  onSetOrigin,
+}: {
+  place: Place;
+  isOrigin?: boolean;
+  onOpen?: (place: Place) => void;
+  onSetOrigin?: (place: Place) => void;
+}) {
   const blurb = placeBlurb(place);
   const where = [place.district, place.province].filter(Boolean).join(" · ");
   return (
     <article className="stop-brief" data-component="StopBrief">
       <p className="stop-brief-kicker">
         {[place.type_label, where].filter(Boolean).join(" · ") || "ข้อมูลจาก ททท."}
+        {isOrigin ? " · จุดเริ่มต้น" : ""}
       </p>
       <h3>{place.name_th}</h3>
       {blurb ? <p className="stop-brief-why">{blurb}</p> : (
@@ -154,10 +186,19 @@ function StopBrief({ place, onOpen }: { place: Place; onOpen?: (place: Place) =>
           </div>
         ) : null}
       </dl>
-      {onOpen ? (
-        <button type="button" className="stop-brief-open" onClick={() => onOpen(place)}>
-          ดูรายละเอียด
-        </button>
+      {onOpen || (onSetOrigin && !isOrigin) ? (
+        <div className="stop-brief-actions">
+          {onOpen ? (
+            <button type="button" className="stop-brief-open" onClick={() => onOpen(place)}>
+              ดูรายละเอียด
+            </button>
+          ) : null}
+          {onSetOrigin && !isOrigin ? (
+            <button type="button" className="stop-brief-origin" onClick={() => onSetOrigin(place)}>
+              เปลี่ยนจุดเริ่มต้น
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </article>
   );
